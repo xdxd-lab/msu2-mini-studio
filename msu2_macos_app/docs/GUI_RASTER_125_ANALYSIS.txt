@@ -1,0 +1,50 @@
+125% 預覽外框像素檢查分析 — 2026-10-12
+分析：GPT-6 Astra / ultra；主代理最新 Usage 剩餘 88%。
+範圍：讀取現有 JSON、PNG 與原始碼；沒有執行 GUI、硬體或桌面擷取。
+
+結論
+final_stream125 與 final_flash125 的 renderedImageUnchanged=false 來自
+兩次 AppKit 快照的總高度不同，不是圖片內容像素被外框修改。
+獨立比對兩組 PNG 的完整 640 × 320 圖片區，每組 204,800 個 RGBA 像素，
+差異均為 0。此比對包含原 QA 以比例換算時漏掉的頂／底邊界列。
+
+獨立讀圖結果（未修改圖片）
+                          外框開啟       外框關閉       圖片區差異像素
+final_stream125           789 × 425      789 × 424       0 / 204,800
+final_flash125            789 × 424      789 × 425       0 / 204,800
+
+兩組圖片區均為 PNG 左上座標 (75,52)、右下座標 (715,372，不含)，
+亦即 x=75..714、y=52..371。
+各組重疊範圍內共有 7,744 個不同像素，全部位於圖片區外，符合外框開關
+預期。完整頁面與四張預覽 PNG 的視覺檢查，未見色條裁切、比例錯誤或
+圖片內容被覆蓋；完整頁面下方的內容裁切為既有可捲動區與固定頁腳邊界。
+獨立計算資料：build/dark-ui-qa/raster125_independent_pixel_analysis.json。
+
+布局解釋與證據界線
+預覽限制為 height = width * 0.5 + 24 * scale。125% 時 width=789，理想
+高度為 789/2 + 30 = 424.5 pt，因此 backing-pixel／布局取整是高度交替
+424／425 的合理來源。現有資料未逐步記錄每次 cache 呼叫前後的 bounds，
+不能進一步宣稱只由 bitmap factory 取整造成，或排除同步布局結算。
+兩張圖的内容 rectangle 均落在相同整數像素座標，且完整內容已直接證明
+相同；一像素總畫布高度差異並不構成圖片資料被修改的證據。
+
+建議 QA 修正
+1. 完成 layoutSubtreeIfNeeded 後，保存不可變的 captureBounds 與 contentRect。
+2. 由同一組參數預建兩個 NSBitmapImageRep：pixelsWide、pixelsHigh、
+   bitsPerSample、samplesPerPixel、colorSpace、bitmapFormat 與 size 相同。
+   size 使用保存的 captureBounds.size，兩次 cache 使用同一 captureBounds。
+   這是適合的控制變因；不要分別重新呼叫 bitmapImageRepForCachingDisplayInRect。
+3. 比較完整 contentRect 所涵蓋的像素；先驗證區域落在兩個 bitmap 範圍內，
+   每張圖使用其各自 bytesPerRow。不能為了消除 false 而略去邊緣列。
+4. 同時記錄兩次 cache 前後的實際 bounds、contentRect 與 bitmap size。
+   若布局改變，應獨立標記／使快照穩定後重試；固定畫布的比較成功不能
+   被解讀為布局完全不變。現有資料足以確認圖片區未變，不足以斷言
+   所有平台、backing scale 與任意內容尺寸的取整行為。
+5. 保留 payloadUnchanged 與 renderedImageUnchanged 作為不同層級驗證：
+   前者檢查來源 bytes，後者檢查本機繪製結果。
+
+其他已確認修正
+applyScale 現已明確設定 leftWidth.constant 與 flashLeftWidth.constant
+為 -8*value，消除了原分析提及首次窄視窗時未記錄 inactive constraint
+基準的偏移風險。此 125% 像素檢查問題與已修復的 NSScrollView 拆除例外
+不同；後者不應因本次 raster false 而重新解讀為仍有死鎖。

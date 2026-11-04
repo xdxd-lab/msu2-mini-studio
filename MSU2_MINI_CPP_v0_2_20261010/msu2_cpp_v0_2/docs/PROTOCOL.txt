@@ -1,0 +1,42 @@
+MSU2_MINI v0.2 協定依據與實作選擇
+
+裝置廣播：00 4D 53 4E ASCII十位 ASCII個位，例如00 4D 53 4E 31 36。
+握手及確認：00 4D 53 4E 43 4E。
+開窗18B：02 00 xH xL yH yL；02 01 wH wL hH hL；02 03 07 00 00 00。
+頁暫存寫入：04 index D0 D1 D2 D3，index 0～63。
+頁预填：02 04 D0 D1 D2 D3，把64個四byte組設成相同值。
+提交頁：02 03 08 lenH lenL 00，完整頁length=256。
+方向：02 03 0A state 00 00，已知state 0/1，但不標定旋轉角度。
+
+一張160×80 RGB565＝25,600B＝100頁。每個pixel高byte先送，依逐行次序。
+raw：每頁64個04命令＋提交，共390B。含開窗一幀39,018B。
+pair：在完整頁64組四bytes中，選頻數最多的一組預填，只送例外位置，再提交。
+同頻時選最早出現的組；與社群其他tie規則可能產生不同但等效bytes，測試以解碼後像素比對。
+pair每頁12～390B，完整畫面含開窗1,218～39,018B。壓縮並非前後幀差分、索引色或色盤。
+tail：一律256B FF補齊、64次04寫入；提交真實byte數。矩形需完整落於160×80。
+
+回覆：完整MSNCN握手可驗證；LCD回覆僅在舊程式確認前兩byte02 03，完整格式與交易對應未知。prefix相容模式不能當作面板完成回執。echo選項屬額外診斷假設。
+
+參考來源（研究用，不打包第三方源碼或字型）
+1. 使用者提供《使用及开发指南-MSU2系列可编程USB屏幕》v1.10，2024-11-02，24頁。
+2. 已取得MINI Demo V1.6樣本的Python3.11靜態bytecode。EXE SHA256：
+   96b1ba7683c5dd60c81c7bae3f3fbcd834a40449f9b8d9747b8619b51e2c9553
+   主擷取、RGB565與Screen_Date_Process路徑可見頁式預填／例外編碼。
+3. https://github.com/Carteahere/MSU2-USB-Screen-Android/tree/33ba32037ea301254803ea657240eaab5e6b48a4
+   app/src/main/java/com/msu2/android/usb/Msu2Protocol.kt、Msu2Serial.kt
+   固定來源標GPL-3.0；本專案以協定事實交叉核對，自行撰寫C++實作，未置入其程式檔。
+4. https://github.com/Blackwood416/MSU_Mini_UsbScreen/tree/ae303c6b783c7f5b3019d5993ce2438f9704e906
+   UsbScreen.Core/Utils/RenderUtil.cs、SerialPortUtil.cs、ImageUtil.cs，來源標MIT。
+5. 買家照片只作設計線索；未取得其C++源碼，也未驗證其60fps宣稱。
+
+本版沒有把LITE的09 RLE封包移植到MINI，也沒有假定每幀需要02 03 09結束命令。
+MINI主投屏沒有該尾命令；某些fast1函式有，實際含義待特定韌體確認。
+
+
+v0.2 跨幀差異更新
+沿用上述開窗與頁命令，每個局部矩形重新設定 x、y、width、height，再逐行送出該矩形像素。
+局部矩形最後一頁的實際有效 byte 數必須正確；不足256B時仍沿用raw尾頁填FF、提交真實長度。
+上層差異規劃比較RGB565，不改變pair頁內編碼語意。第一張／強制刷新完整傳送。
+参考影像只在整次更新全部區域完成主機傳送後才更新；這是主機狀態，不是裝置像素讀回驗證。
+每區域固定成本384B為規劃启發式，最多32區域，不會變更實際線上命令。
+區域之外像素保留的裝置行為是差異更新前提；本版實作需以使用者MINI實測驗證。

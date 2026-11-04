@@ -1,0 +1,111 @@
+send --hold-open-ms 實作與離線證據審核
+日期：2026-10-11（Asia/Taipei）
+
+審核結論
+
+本次變更可交付使用者進行 0 秒／10 秒實機觀察；未發現需要阻擋交付的實作問題。
+新增參數確實在成功送完 payload 後、SerialTransport 解構關閉之前等待，
+等待迴圈沒有序列埠讀写、重新握手或重送影像。既有畫面編碼、更新規劃、
+Session::send 與 transport 實作保留。
+
+本結論只確認程式結構、離線 PTY 行為與封裝一致性。沒有判定實機的底部
+殘留已修復，也没有把 host write 完成、開窗 ACK 或等候時間視為 LCD 完成確認。
+本審核代理只讀程式碼、既存紀錄與封裝；沒有開啟實體序列埠，也沒有執行
+send／stream。離線執行證據由主代理指派的 GPT-6 Luna medium 測試代理提供。
+
+實作審核
+
+1. msu2_linux_v0_3/src/main.cpp:59 僅在 send 的 allowed options 加入新旗標。
+   第 664 行使用既有 unsigned 整數解析器，預設 0、範圍 0..60000；
+   驗證發生在第 666 行建立 SerialTransport 之前。
+2. 第 667 行仍只呼叫一次原有 connection() 與 Session::send(encoded)。
+   送出失敗時會進入原有例外處理，不會進入成功後等待。
+3. 第 668–675 行在 transport 與 session 的同一詞法作用域內等待。
+   steady_clock 提供單調 deadline；每段 sleep 最多指定 50 ms 並检查
+   既有 lock-free atomic interrupted flag。實際喚醒時間仍受 OS 排程影響。
+   SIGINT 在等待中可提早結束，輸出 interrupted=1，return 130 仍會執行
+   C++ 區域物件解構，釋放 transport。
+4. stdout 分別保存 post_send_hold_requested_ms、post_send_hold_elapsed_ms
+   及 interrupted。量測起點在「要求等待時間」stdout flush 之後；它量測
+   等待區段，不代表從最後一個 payload byte 到 OS close 的精確總間隔。
+5. manual_test_kit/manual_test.py 驗證範圍、為 send 組入旗標、把指定值與
+   完整命令寫入 metadata，並把 send launcher timeout 延長相同秒數。
+   Guard 仍涵蓋 child.wait 與中斷清理，直到子程序回收才釋放。
+   compare_runs.py 增加 hold_open_ms 欄位，便於對照保存的執行設定。
+6. README 提供 0／10000 ms 命令，明示先恢復可比較的初始畫面，以及上一輪
+   完整色條可能遮掩下一輪未完成傳輸。使用者仍應記錄重新插拔與命令退出時刻。
+
+保留既有演算法的證據
+
+已把目前 main.cpp 與先前封裝 dist/msu2_linux_v0_3_source_20261011.tar.gz
+中的 main.cpp 逐行比較；差異僅為 send allowed option、help 及傳送後等待。
+stream/full/diff/priority 區段沒有變更。
+
+以下目前原始碼 SHA-256 與更新前 msu2_linux_v0_3/MANIFEST.sha256 記錄一致：
+  src/protocol.cpp  73c5b2c3f42476d5dc1d1c62d7b080023b9a931eef6a76bbd43a1ad5782be9c4
+  src/session.cpp   c55978585b023dcef5b1e7f5b11bc47f7d159ffb2cb128da8ea345e7babee6fc
+  src/transport.cpp 5c176b345ae84eba04d352ec46434a4c1c157d27405aa2e605e330f8f701df3a
+  src/delta.cpp     74882190d1fcab2f9dc25982650a903e1efbda16d552f2830ab40911b4818e4e
+  src/image.cpp     666693cabdbd2380140e43d84cfbba5ff0420bc044e240871cb23c4112c8efd6
+  src/priority.cpp  331e3198dec11f17608d400ff7c282a4c234bb44f9d28caea8f2f9e0ccc0b07c
+
+離線測試證據
+
+主要證據目錄：
+  manual_test_kit/results/offline_hold_open_fd_20261011T090439+0800/
+已讀 command.txt、metadata.json、stdout.log、stderr.log、limitations.txt，
+並重新核對執行檔、測試程式及整合 harness 的 SHA-256。
+
+記錄命令：
+  cd msu2_linux_v0_3 && /Library/Developer/CommandLineTools/usr/bin/python3 tests/hold_open_pty.py build/msu2
+Exit code：0；stderr 為空。
+
+已保存結果：
+  0 ms：程序約 0.061 秒；記錄 hold 0.0 ms。
+  1000 ms：程序約 1.056 秒；記錄 hold 1005.0 ms。
+  兩輪完整序列位元組及解碼色條像素一致，各只有一幅完整 frame。
+  1000 ms 的 hold marker 出現後，兩次 lsof 查詢都找到 child PID 自己的
+  /dev/ttys001 描述元；不是單靠父程序仍開著 slave fd 或程序延後退出推論。
+  10000 ms 中斷案例先等明確 hold marker，再兩次檢查 child PTY fd，才發
+  SIGINT；驗證 exit 130、interrupted=1、仍只有一幅 frame。
+
+  binary SHA-256：
+    6a86644a6db6f3aa4bfd8f81aba2a55cf6a4c5f583e096def3e102a166041c8b
+  tests/hold_open_pty.py SHA-256：
+    5626b2faaa65adab7734f37043883f0e6e94cd853294e8c73c5f9cc48fbd2f6a
+  tests/integration_pty.py SHA-256：
+    1252ca31a291d2536c0a60fbafeeaf618b52ca366fd4493f6ee1061c9a48ae8b
+
+原測試只憑總執行時間，且 SIGINT 未等明確 hold marker；本次已補強這兩項
+證據缺口。lsof 是等待中的取樣，連續持有的結論另由 transport 詞法生命週期
+支持。PTY 測試不模擬真實 USB 佇列、DTR/RTS、韌體或 LCD 更新時間。
+完整自然結束的等待量測是 1000 ms；10000 ms 案例測的是等待中斷。
+
+補充證據：
+  manual_test_kit/results/offline_20261011T090019+0800/
+已讀 CHECKS.txt 與 candidate_binary_offline.json。紀錄列出影像驗證、CLI
+dry-run、八個無效參數案例、launcher 中斷／timeout／guard 生命週期、離線
+preview/encode 及 compare fixture 檢查通過；兩張 preview 與原 PPM hash 相同，
+使用的 binary hash 與本次 PTY 證據一致。這份 CHECKS 是測試套件摘要；本審核
+沒有逐案重演 wrapper audit。新 hold 旗標的個別 dry-run／拒絕案例另只收到
+Luna 的摘要，未獨立複核其逐案輸出；範圍與適用命令限制則已由程式碼確認。
+
+封裝一致性
+
+初審曾發現舊 manifest 尚未更新，主代理已修正並保留舊 archives。
+本審核已重新計算目前檔案及兩個新 archive 內 manifest 列出的每個成員雜湊：
+原始碼 27 筆、kit 29 筆全部符合；以下 archive SHA-256 亦由本審核重新計算。
+
+  dist/msu2_linux_v0_3_source_hold_open_20261011.tar.gz
+    72089722619e25baec6dd26895b76075ff1ecbfff5b5040ab986de62ef910736
+  dist/msu2_manual_test_kit_hold_open_20261011.tar.gz
+    4a152b722a750ead5db1126609adf4f86d927e47fded397e68b07cb5c3c74db1
+
+使用者實機結果的判讀界線
+
+若同一初始畫面的 10 秒組較 0 秒組完整，可支持「保持連線時間影響觀察結果」；
+尚不能單獨歸因於主機佇列、裝置處理速度或關閉時的 modem 狀態還原。
+若只在命令退出前後發生改變，請保存這個時間關係；transport 關閉前恢復
+原始 modem/termios 的行為是既有實作，本輪沒有修改。
+若兩組結果一樣，也不能靠此排除其他傳輸或韌體原因。每輪的初始畫面、
+1 秒／10 秒觀察、命令退出前後、重新插拔狀況与原始 stdout 都應一起保留。

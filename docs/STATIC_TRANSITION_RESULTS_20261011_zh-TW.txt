@@ -1,0 +1,100 @@
+MSU2 Mini macOS：移動→靜止→恢復局部更新，主代理證據覆核
+2026-10-11；硬體執行 GPT-6 Luna 中；全面分析另由 GPT-6 Astra Ultra。
+
+本輪做完的工作
+六個預定案例全部自然結束，沒有重跑、重新插拔或同時操作設備。
+正式原始套件、DeltaPlanner、producer/latest queue、Session、native Transport 均未修改。
+只有獨立生成的診斷副本加入圖樣時間安排、記憶體觀測與可選的單次恢復。
+所有案例 moving/pair/diff/chunk60/keyframe0/2000ms；間隔3秒。
+每例1秒移動→3/6秒相同影像→4秒移動，frames 為擷取數，不是已送張數。
+
+證據目錄
+results/macos/static_transition/20261011T021344_029868+0800_404f1b17/hardware
+manifest status=completed 代表排程完成；launcher exit=1 保留兩個 baseline 失敗。
+其中四案 process exit0；兩個恢復案仍然各有原始 ACK fault，不能描述為無錯誤。
+每例有完整 command、exit、CSV、OBS log、.evidence.json、SerialGuard 證據。
+launcher.command.txt、launcher.stdout.txt、launcher.exit_code.txt、cu/tty 前後 lsof、
+handoff.txt 與 artifact_sha256.json 均在該目錄。
+主代理獨立重算見 results/macos/static_transition/primary_review.json，errors=[]。
+operator handoff 兩處文字查表/掉幀說明問題另列 primary_handoff_notes.txt；raw 未改。
+
+六案結果
+A01 45FPS、靜止3秒、baseline：exit0，360/360 processed，135 unchanged，drop0。
+    實際無TX間隔3021.282208ms，恢復後180 partial；首恢復影像host latency0.6635ms。
+A02 45FPS、靜止6秒、baseline：exit1，完成315 CSV rows、270 unchanged。
+    間隔6021.625417ms；首恢復影像frame315、patch0/1 開窗ACK逾時。
+    沒有完成任何恢復影像；最後成功CSV drop0，不是失敗等候期間的最終drop。
+A03 60FPS、靜止6秒、baseline：exit1，完成419 rows、360 unchanged。
+    間隔6017.247541ms；首恢復影像frame420、patch0/1 開窗ACK逾時。
+    第一列已drop1、缺frame1，後續成功CSV未增加；失敗等候的最終drop沒有記錄。
+A04 45FPS、靜止6秒、單次恢復：原frame315、patch0/1 ACK fault保留，exit0。
+    495 captured、403 processed；270 unchanged，間隔6021.902667ms。
+    同fd嚴格重握手成功，重建一個全幀，接續87 partial，最後frame494完成。
+    CSV首drop0→恢復後92，後續不增；缺316..407，下一完成frame408。
+A05 60FPS、靜止6秒、單次恢復：原frame420、patch0/1 ACK fault保留，exit0。
+    660 captured、536 processed；360 unchanged，間隔6016.958625ms。
+    同fd嚴格重握手成功，重建一個全幀，接續116 partial，最後frame659完成。
+    首drop1→恢復後124；恢復新增123，後續不增。另缺421..543，下一完成frame544。
+A06 45FPS、靜止3秒、baseline重複：exit0，360/360 processed、135 unchanged、drop0。
+    間隔3024.051833ms，恢復後180 partial；首恢復影像host latency0.936459ms。
+
+故障定位
+所有案例成功完成初始嚴格握手並傳送首full。四個fault都在靜止結束後的第一張
+恢復影像，不在首張/warmup，也不在靜止圖樣的處理階段。
+各例靜止區既有差異更新選擇unchanged，270/360或135列，不讀也不寫serial。
+四個失敗ACK wait都讀出120 bytes，精確20個完整MSN01，沒有02 03模式或020307000000。
+失敗patch0尚未送payload、完成patch數0。此處不能用最後CSV列当成failed frame。
+MSN讀出時間在恢復傳送之後；靜止時沒有讀取，不能量到設備首次宣告的精確時間。
+無TX間隔是上一個payload的主機W（OS接受）到新window T，未量設備收到的時刻。
+
+恢復對照與卡頓會計
+本輪未縮短原2秒ACK預算：逾時且本次wait讀到MSN時才允許一次恢復。
+同fd使用原Session.handshake，需有效MSN與exact MSNCN；invalidate後原planner產生full，
+全部send成功才commit。沒有blind resend、放寬echo、持續重試或增加timeout。
+
+                        A04/45                 A05/60
+恢復marker握手時間      34.436750ms            39.190000ms
+恢復marker全幀時間      36.415042ms            36.281083ms
+原fault→full成功        70.880583ms            75.543875ms
+首恢復window T→full成功 2071.590500ms          2076.368375ms
+恢復full的host latency  2072.05ms              2076.99ms
+恢復full成功命令量      33078B/552 calls       32898B/549 calls
+恢復等待新增queue drop  92                     123（另有startup1）
+
+marker全幀時間從全幀規劃完成後開始，包含host send；原fault→full成功另包含規劃。
+CSV各字段的邊界不同，不能混用。
+成功full大小隨當下moving圖樣tick45/60不同，不固定為moving0的32970B。
+恢復CSV的window_ack/payload/bytes只統計成功full，沒有含先前失敗window；
+host_latency則包含該frame開始轉換、原ACK等待、握手與full。
+恢復列encode_ms仍是首次partial plan的量測，不含恢復full的重規劃/編碼；
+該額外時間包含於host_latency，完整語意見Astra全面分析報告。
+OBS保存了失敗window與MSNCN handshake bytes，可另做實際主機接受量會計。
+等待中的single latest slot會被更新擷取影像取代；這些drop集中在恢復等待，
+不代表45或60本身每秒都超過穩態傳送能力。恢復送的是約兩秒前的current frame，
+下一張才取最新等待影像；未做新快照重算或序列排程優化。
+
+覆核與來源保全
+正式binary SHA256：4b64f7a3b542653ac843551cd0d7193adbb339c09ff64840e460e992307d960c
+診斷binary SHA256：2d49dab7bff8a542eb3f6c5cdc86e549d58fe72e9549f1d411da25638d89b01a
+每例 before/after 診斷hash一致；正式hash也一致；原套件57項CHECKSUMS全部符合。
+build.json 27檔（include、source、生成copy、helper/runner/fake/binary等）匹配。
+operator artifact index 28項亦匹配；逐列trace U↔CSV id/kind/bytes/calls/rectangles符合。
+42 Python tests與C++fake/source mapping/gate/partial failure/full/bound、實際C++trace解析通過。
+每例先取得shared guard，再lsof兩個cu/tty別名exit1；lease保留至child回收及驗證。
+suite之前/之後lsof亦無可見owner；主代理/Astra沒有開埠。
+
+未計作硬體結果
+results/macos/static_transition/20261011T020330_031033+0800_e5a6130d/hardware
+為普通沙盒EPERM before serial open。保存後依系統工具審批取得權限，另起本輪。
+20261011T020253_193695+0800_e1354876 是dry-run，只準備命令。
+
+判讀界線
+支持：即使擷取仍45/60FPS，差異更新静止時的停止TX會帶來另一个會話恢復問題；
+本輪6秒條件能在45/60都重現，且一次同fd嚴格握手+full能在兩個案例繼續。
+不支持：物理低功耗休眠已證明、精確5秒硬門檻、60FPS長期穩定、3840已修復。
+舊5.114秒公告是另輪全幀後RX-only資料；本輪3/6秒只提供對照，未精掃失效界線。
+連續移動中段1/496/1672次後的歷史失敗仍待定位；不能由本輪idle解釋全部。
+少量固定順序、新process但未控制上電，wrapper clock/copy與open後記憶體配置有影響；
+native tcflush丟棄的未讀資料不可見，prefix ACK不是LCD完成，主機W不是USB bus完成。
+本輪沒有取得LCD目視/影片確認，不沿用其他案例的畫面正常回覆。
+保持現有update算法，後續正式改動應優先評估RX/會話狀態與有界恢復的回應時間。

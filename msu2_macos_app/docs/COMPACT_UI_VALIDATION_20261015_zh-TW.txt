@@ -1,0 +1,34 @@
+MSU2 Mini Studio 精簡介面離線驗證
+日期：2026-10-15
+範圍：macOS 原生 AppKit UI；不包含實體裝置與 Flash 操作。
+應用程式：msu2_macos_app/build/ui-compact-20261015/MSU2 Mini Studio.app
+實際畫面：output/design/msu2-mini-studio-compact-ui-v2-actual-100.png
+概念圖：output/design/msu2-mini-studio-compact-ui-v2.png
+
+變更
+- 介面縮放比例 100%、125%、150% 仍由同一選單控制，視覺基準改為原設計的 75%。新安裝預設 100%，已儲存選擇保持不變。
+- 主按鈕高度依序約 45、56、68 pt，文字、間距與點擊區同步變化。
+- 投射與串流頁直接顯示編碼方式、優先區域、Hold、ACK 設定，移除進階設定折疊按鈕。
+- 串流的開始、暫停／繼續、停止、傳送單張操作移到裝置連線卡下方、分頁上方。
+- scripts/build.sh 接受可選 BUILD_DIR，本次使用獨立建置目錄，未覆寫先前版本。
+
+測試執行
+測試及驗證由 Luna medium 子代理執行；結果由 GPT-6 Sol medium 子代理分析。Astra xhigh 子代理分析了最初的 GUI 啟動中止。
+1. 使用獨立 BUILD_DIR=msu2_macos_app/build/ui-compact-20261015 執行 bash msu2_macos_app/scripts/build.sh，exit 0。原始隔離 GUI binary SHA256：3ce855bf13d803db7d75893b48c39125af16eb299254e06ead6ac7648bb0666d。
+2. 首次在受限命令環境啟動 GUI 於 [NSApplication sharedApplication] 的 AppKit/HIServices 註冊階段 SIGABRT，exit 134。當時尚未建立 UI；直接 stdout/stderr 空。崩潰紀錄與 binary UUID 相符。
+3. 以獲准的 macOS GUI 啟動權限、同一份凍結執行檔執行離線 --ui-smoke --ui-matrix，exit 0，stdout UI_MATRIX_OK 22 offline cases complete。此差異支持啟動環境限制，無需修改介面程式。
+4. 22 案包含 100%、125%、150%，800×700 窄視窗、三分頁、黑／白／混合／彩條預覽與連線、啟動、串流、暫停、停止、錯誤等狀態。四個 compact_* 案例的 buttonHeight 分別為 45、56、68、68；均記錄 advancedAlwaysVisible=true、streamActionsBelowConnection=true。
+5. 22 案 payloadUnchanged=true；21 案有預覽的比較 renderedImageUnchanged=true、differentPixels=0，歷史頁無預覽不作此比較。按鈕啟用規則與提示文字符合各狀態。窄視窗改為換行／捲動，截圖未見控件互相遮蓋。
+6. 測試時發現隔離 bundle 內使用說明仍為舊內容；只替換 Contents/Resources/README_zh-TW.txt，重新 ad-hoc 簽署，codesign --verify --deep --strict exit 0。該資源與來源 README SHA256 同為 6b491109a98ad51ff96a322e69907907cb178d63c815913c1c532eeeee76d4ea。
+7. 重簽會改寫 GUI binary 簽章，最終交付 binary SHA256 為 ef0bc9a864df494190ad4a199fed87610a178a1e27af36ebe8744e088ec7822e。最終 bundle 又執行單一離線 --ui-smoke --snapshot qa/resource_refresh.png，exit 0，stdout UI_SMOKE_OK no serial connection or capture permission requested，截圖存在。完整 22 案對應重簽前的相同程式邏輯；最終重簽包驗證為單案 smoke。
+
+證據
+- msu2_macos_app/build/ui-compact-20261015/qa/escalated.stdout.txt、escalated.stderr.txt、escalated.exit-code.txt：22 案輸出與 exit。
+- 同一 qa 目錄的 compact_stream100_top、compact_stream125_top、compact_stream150_top、compact_small150_top PNG/JSON：尺寸、配置、窄視窗。
+- 同一 qa 目錄的 final_* PNG/JSON：狀態、分頁及預覽。
+- resource-refresh.commands.txt、resource-refresh.exit-code.txt、resource-refresh.binary-before.sha256、resource-refresh.binary-after.sha256：資源與重簽。
+- resource-refresh.stdout.txt、resource-refresh.stderr.txt、resource-refresh-smoke.exit-code.txt、resource_refresh.png：最終包單案啟動。
+- repro.*：受限命令環境第一次重現。
+
+限制
+本輪只做離線 UI 與啟動驗證。沒有實體觸控螢幕、遠端桌面實際操作、USB 串流生命週期、桌面擷取或外部 Flash 擦寫測試；不能用此輪數據推論 LCD 可見 FPS。2026-10-13 的控制層實機證據另見 docs/HARDWARE_RESUME_20261013_zh-TW.txt。

@@ -1,0 +1,108 @@
+macOS 測試計畫與驗收
+
+範圍與依據
+依 ChatGPT「MSU2 Mini 前置調查討論」截至 2026-10-10 的 C++ v0.2 狀態。
+面板設定為 MINI 160×80；握手不會查詢物理解析度。
+沿用現有 DeltaPlanner，依最後完整送出的畫面比較，整次區域更新完成後才 commit。
+本輪不修改比較、合併、成本估計或跨來源幀排程策略，也不再比较 USB 3.0 插孔。
+
+2026-10-10 第一輪執行狀態（後續排查另見 ACK_INVESTIGATION_RESULTS_20261010.txt）
+原生 build、core／delta／PTY、ASan／UBSan 與 12 組 diff-bench 已通過。
+原 C++ 未修改；--chunk 60 已完成色條 30 秒（450/450、使用者確認完整穩定）
+與 moving/diff30（300/300、30.0824 host FPS、0 掉幀、使用者確認無明顯殘影或缺塊）。
+moving/diff60、chunk60 完成 496 次更新後 ACK timeout，無最終摘要、exit_code=1，
+驗收 FAIL；CSV frame_id 為 0、2 到 496，初始化等待幀取代 1。不能宣稱已擷取 600 張。
+使用者確認中途畫面正常不等於完整案例通過；60 FPS 待修復與重驗。
+--chunk 3840 數次完成第一張後，第二個 window ACK 逾時，仍未驗收。
+目前實機以 --chunk 60 --case <指定案例> --repeats 1 逐案執行，案例間手動拔插。
+重開程序可能沒有 banner，拔插後偶爾仍有 MSNCN echo 逾時；不自動重試或重連。
+下方保留完整目標矩陣；個別短測通過不代表三輪 baseline、extended、soak 或重連已完成。
+本輪不自動進入 extended／soak；下一步先處理 ACK 與重連問題，尚未全面驗收 macOS。
+詳細結果與證據路徑見 MACOS_PREPARATION_RESULTS_20261010.txt。
+
+階段 A：環境與離線正確性
+1. preflight：系統版本、架構、編譯器、C++17 實際編譯及執行、可見序列埠。
+2. 原生 build：確認 Mach-O arm64；保存執行檔 SHA256 與 help。
+3. 上游 release 核心/差異測試、PTY 整合；驗證畫面重建、邊界、129 像素跨頁、
+   零碎區域、慢速來源取代、途中失敗與 CSV 保護。實際覆蓋以取得後的原碼為準。
+4. ASan/UBSan 核心檢查（不含洩漏檢測）。
+5. diff-bench 300 張固定來源：moving/pair 預期全幅 9,941,472 bytes、差異 215,730 bytes。
+   若與前次不同，先確認來源版本與參數，再判斷是否退步。CPU 計時只作觀察。
+
+階段 B：smoke，預设每案例一次
+bars / full / pair / 15 FPS / 45 張：核對色序與方向。
+moving / diff / pair / keyframe=0 / 30 FPS / 90 張：核對移動與區域外像素保留。
+每次 stream 都重新握手；不得僅因序列埠存在就宣稱辨識到 MSU2。
+
+階段 C：baseline，預設重複三次
+moving / full / pair / 30 FPS / 300 張。
+moving / diff / pair / keyframe=0 / 30 FPS / 300 張。
+moving / diff / pair / keyframe=0 / 45 FPS / 450 張。
+moving / diff / pair / keyframe=0 / 60 FPS / 600 張。
+相鄰重複輪次反轉四個案例的次序；保留每輪結果，不只挑最好數字。
+full 無 --keyframe-ms 引數。首張 full 另外統計，後續的週期 full 不可從穩態任意刪去。
+若 full 取代等待幀，和 diff 的傳送來源序列便不完全相同：
+實機總 bytes 只能比較本輪負載，精確同來源節省率以 diff-bench 為準。
+
+階段 D：extended
+bars / diff / keyframe=0：靜態略過是否正確，是否發生設備待機。
+bars / diff / keyframe=1000：靜態週期全幅刷新。
+moving / diff / keyframe=1000 / 60 FPS：週期刷新造成的尖峰。
+gradient 與 noise / diff：高變動及全幅回退。
+moving / diff / raw：跨幀差異策略與 pair 頁編碼分開觀察。
+
+階段 E：長時間與人工操作（另行啟動）
+  python3 scripts/macos/run_hardware.py --port <實際埠> --suite soak --case moving_diff_soak_kf1000 --seconds 300 --repeats 1 --chunk 60
+預設 moving 與靜態案例各 300 秒，需記錄待機、畫面漂移、timeout、長時間殘影。
+先通過短測再執行；soak 沒有被準備流程自動啟動。
+人工中斷：傳輸中 Ctrl+C，確認程序在 I/O 期限內退出、可重新開埠；中斷紀錄不列完整 PASS。
+拔插：中斷 USB 後應有明確錯誤，重新插入需新連線與首張全幅，不能沿用舊畫布假設。
+睡眠喚醒：另輪手動驗證辨識與重連；未實測前不聲稱支援自動恢復。
+實機四角／單像素／奇數寬的逐區域顯示，需確認 v0.2 CLI 支援後再補專門案例；
+既有 PTY 邊界測試與 moving 回繞觀察不等同完整實機邊界驗收。
+
+每案例的必要記錄
+- 執行檔 hash、參數、日期、平台、實際埠、命令、預期 frames、退出碼、逾時與中斷狀態。
+- CSV 每列為完成處理的來源，包含 unchanged；不把 unchanged 灌入送出 FPS。
+- captured = processed + waiting_frames_replaced 僅用於完整正常結束；
+  processed = host_frames_sent + unchanged_frames。
+- full_frames + partial_frames = host_frames_sent。
+- CSV wire_bytes / rectangles 的加總應吻合最終 log。
+- dropped_total / unchanged_total 是累計值，不可逐列相加。
+- 首張 full、後續送出、週期 full、unchanged 分別觀察；列出 mean/P50/P95/max。
+- log 缺最後摘要、握手失敗、幀數不足、分析器發現矛盾，一律保留為未通過／未完成。
+
+效能判讀與完成門檻
+Windows v0.2 moving/pair/diff30：300/300，0 waiting replacements，215,730 bytes，
+1 full + 299 partial；host_send_fps 30.0455；首張後平均 host latency 1.526667 ms，
+P95 2.104980 ms（線性插值）。這只是單次小變動樣本，不能作 macOS 的硬性上限。
+macOS 初輪目標為 diff30 穩定接近目標速率且無持續等待幀取代；
+diff60 的首張初始化与後續表現分開判讀，不能先保證所有600張都送出。
+螢幕必須另確認色序、方向、回繞、殘影與區域外保留。主機 log 無法證明可見刷新率。
+要量光學延遲／LCD 更新率，需記錄影片取樣率、畫面時間標記與量測方法；本輪工具不冒稱具備。
+
+macOS 階段完成後，再決定
+1. 對已確認的 macOS 問題作修正與平台內回歸。
+2. 討論區域成本估計、時間預算、優先序及跨幀排程後才實作新演算法。
+3. 用同一素材與統計定義驗證 windows_x64，或評估 Rust 的維護與效能收益。
+
+2026-10-10 逐級FPS排查（追加）
+已閱讀「MSU2 Mini 技術資料」thread 01a12629-3ee2-7f13-94b2-12133b6828cf
+及其 docs/EXTERNAL_RESEARCH_20261010_zh-TW.txt，作額外參考。
+硬體測試依最新指示由GPT-6 Luna／medium單一子代理操作，root僅離線核對。
+不強求達到60 FPS。固定原版binary、moving/diff/pair/keyframe0、chunk60、timeout2000。
+依45、46、47…60逐檔升高，每檔獨立新process、30秒（frames=fps×30）、檔間3秒。
+每檔開啟前用serial_guard共同鎖及cu/tty別名lsof確認沒有其他持有者。
+有鎖、已有持有者或無法確認時停止，不搶占現有測試；不修改TTY設定或C++執行內容。
+共享鎖是本工作區測試工具間的合作互斥，不宣稱能禁止任意外部程式稍後自行開埠。
+ACK或握手失敗保留原紀錄，process退出後才測下一FPS，不在同一檔自動retry。
+初掃後在最早LCD ACK失敗附近與45控制組補有限次30秒確認；每組仍升序。
+初始waiting replacement和其後新增drop分開；無final者不計算完整host FPS。
+握手失敗不列入該FPS畫面傳输成功/失敗分母；也記錄前一輪的故障階段。
+觀察到最低失敗FPS不等於硬性上限，非單調成敗時明示無法建立唯一閾值。
+不同FPS走過的frame_id與圖樣週期數不同，結論限此moving局部更新負載，非全幅或光學FPS。
+執行命令（僅授權的單一硬體操作者執行）：
+  python3 scripts/macos/run_fps_sweep.py --label ascending
+只列命令、不開USB：
+  python3 scripts/macos/run_fps_sweep.py --dry-run
+結果保存在 results/macos/fps_sweep/<唯一目錄>/hardware/manifest.json、逐FPS CSV/log。

@@ -1,0 +1,122 @@
+MSU2 Mini macOS：45～60 FPS 逐級測試
+2026-10-10，Asia/Taipei
+
+目標
+在現有設計下，找出本次觀察到的ACK逾時／等待幀取代起點，不強求60 FPS。
+硬體由 GPT-6 Luna／medium 子代理獨占操作；主代理負責資料覆核及結論。
+初掃結果已完成；本輪計入16次實機串流。追加確認因命令授權等候中止，未計入結果。
+
+額外參考
+已閱讀 Codex「MSU2 Mini 技術資料」：
+  codex://threads/01a12629-3ee2-7f13-94b2-12133b6828cf
+及其研究筆記 docs/EXTERNAL_RESEARCH_20261010_zh-TW.txt。
+研究指出Android同時採60-byte寫入、送後RX drain及較寬鬆ACK，C#則採390-byte頁寫入；
+這些都是值得分開實驗的差異，不可把社群程式的成功條件當成本程式的通過證據。
+本輪不移植這些改動，固定原版C++、chunk60及既有ACK驗證。
+研究中的raw全幅頻寬上限也不能直接套用到目前moving/diff/pair的小矩形負載。
+本輪不量測LCD光學刷新率，不將host_send_fps當作LCD FPS。
+
+固定條件
+原版native executable SHA256：
+  4b64f7a3b542653ac843551cd0d7193adbb339c09ff64840e460e992307d960c
+pattern=moving，update=diff，mode=pair，keyframe_ms=0，chunk=60，timeout_ms=2000。
+45、46、47……60按順序執行，每檔30秒、frames=fps×30、檔間3秒。
+各檔獨立新程序與完整握手。ACK／握手失敗保留；程序退出後才進下一檔，不在原檔自動重試。
+第二階段原規劃對邊界附近及45控制補有限重複；本次未執行成功，詳見收尾狀態。
+
+避免重疊
+serial_guard用相同cu/tty正規化名稱的flock合作鎖，取得鎖後再用lsof檢查兩種別名。
+有持有者、另一測試持鎖或無法確認時不啟動child。正常執行以communicate回收child後才釋鎖。
+這是本工作區各測試工具合作使用的鎖；不是作業系統對所有外部程式的TIOCEXCL封鎖。
+根代理沒有開啟MSU2埠；其離線工具測試只使用mock、臨時檔及臨時鎖。
+
+判讀規則
+- exit0、final captured等於要求幀數、CSV/log計數一致、binary hash不變才算完整通過。
+- handshake失敗未進入畫面串流，與LCD ACK失敗分開，不算該FPS的串流失敗分母。
+- 無final的失敗僅報已完成CSV列數、最後frame_id；不假設已captured全部要求幀數。
+- 記錄首列dropped_total、其後新增值和drop變化frame_id。首列附近的0／1次取代
+  可能來自約36ms的初始化full與latest-frame單張等待位置，不能直接稱穩態效能不足。
+- 「首列之後新增」是觀察時點的定義，不自動等於初始化之後的穩態因果。
+- 30秒各FPS的幀數與moving圖樣走過的週期數不同，故本輪找的是此負載的觀察範圍。
+- 最低一次失敗FPS不等於硬性上限。若較低檔失敗而較高檔成功，應明示非單調／偶發，
+  不能把順序與前次設備狀態的影響歸成單一頻率門檻。
+
+重現
+僅指定的單一硬體操作者執行：
+  python3 scripts/macos/run_fps_sweep.py --label ascending
+只列完整命令，不開設備：
+  python3 scripts/macos/run_fps_sweep.py --dry-run
+指定第二階段有限升序對照（FPS範圍須45..60、不重複）：
+  python3 scripts/macos/run_fps_sweep.py --fps 45 59 60 --label confirmation
+上述最後一條僅為用法示例，實際選點依初掃結果。
+
+初掃結果（每檔30秒）
+FPS   captured   host_sent   waiting取代   ACK逾時
+45    1350       1350        0             無
+46    1380       1380        0             無
+47    1410       1410        0             無
+48    1440       1440        0             無
+49    1470       1470        0             無
+50    1500       1500        0             無
+51    1530       1530        0             無
+52    1560       1560        0             無
+53    1590       1590        0             無
+54    1620       1620        0             無
+55    1650       1650        0             無
+56    1680       1680        0             無
+57    1710       1710        0             無
+58    1740       1740        0             無
+59    1770       1769        1             無
+60    1800       1799        1             無
+
+16/16完整握手且正常結束；每輪captured等於要求值、log/CSV一致、執行檔前後SHA符合。
+45～58 FPS零取代。59及60各僅缺frame_id=1，frame0的CSV列dropped_total已為1，
+其後沒有增加。這是初始化時等待幀取代的紀錄，不是ACK失敗。
+本輪未觀察到45～60範圍內的ACK失敗門檻，不能據此宣布之前60 FPS偶發逾時已修復。
+
+初掃解釋及限制
+首張全幅host latency為34.91～37.20ms；latest-frame只有一張等待位置，
+正在送出的幀不會被中斷，等待幀可能被新幀取代。原始碼未改動。
+59是這次初掃最先觀察到等待幀取代的位置；OS排程與初始化耗時會使位置改變，
+不是設計上的固定臨界FPS。初始化取代和持續ACK逾時必須分開處理。
+45～58次幀（frame1）仍等著首張full完成，使首張以後的最大host latency達12.56～21.17ms；
+59、60直接取代frame1，因此該最大值看似下降，不能解讀為提高FPS改善了效能。
+原統計保留首張後的全部樣本，不靠刪除慢幀來美化結果。
+不同FPS每次只有30秒，0次失敗不代表長時間穩定，也不等於LCD光學刷新率。
+這輪沒有新增逐檔目視確認；先前使用者確認45 FPS畫面正常只屬於先前指定那一輪。
+
+改善方向（尚未實作，不改更新演算法）
+1. 先保留45 FPS／chunk60作已有目視證據的工作基準。58可作提高目標的短測候選，
+   但不得稱為穩定上限；59/60是可測候選，先分開記錄初始化取代與之後的ACK故障。
+2. 若後續需要降低起始等待幀取代，可單獨比較首張送完再啟動定頻擷取等時序方案；
+   必須作另一輪A/B驗證，不混入本輪，也不增加無限佇列造成延遲。
+3. ACK／3840／重連仍保留待查：優先取得原版失敗附近的window TX/RX、payload及時間證據，
+   再分別測chunk大小、送後等待／RX處理、重開間隔。一次只改一個傳輸變因。
+   不以放寬ACK驗證、延長timeout、降低FPS、換語言來宣稱問題已修復。
+4. 外部Android的drain等待、C#較寬鬆握手可供建立對照，但不得直接移植成通過標準。
+
+證據位置
+初掃：results/macos/fps_sweep/20261010T230837_323074+0800_70972a82/hardware
+初次沙盒拒絕：results/macos/fps_sweep/20261010T230754_115261+0800_c9a1a79b/hardware
+  此次EPERM未開埠／未串流，與實機失敗分開；dry-run也不計入硬體輪數。
+離線覆核：results/macos/fps_sweep/reviewed_results.json；同目錄summarize_runs.py可重建。
+每輪manifest保留完整命令、時間、exit、hash、guard證據，CSV/log保留原始資料。
+前輪ACK／3840／重連：docs/ACK_INVESTIGATION_RESULTS_20261010.txt。
+
+工具驗證
+27項Python單元測試通過；全為mock、臨時檔與臨時鎖，不開USB。
+初掃結束後才修正一般OSError路徑的child回收，以及analysis與整體驗收狀態不一致。
+兩者不更動正常傳輸命令、原C++、chunk、ACK等待或顯示更新演算法。
+共享鎖內保持child回收，再釋放鎖；拒收case即使純CSV一致，也不會標整體PASS。
+
+收尾狀態
+原計畫補45、58、59、60各兩輪；確認A的require_escalated命令停留在授權等待，
+等候347.2秒後中止，未取得stdout、session_id或新manifest；確認B未啟動。
+這是追加測試未執行的限制，不是設備故障，也不把它算成60 FPS通過或失敗。
+事後由相同硬體子代理在一般sandbox完成收尾：合作鎖成功取得並釋放，
+lsof確認cu與tty兩別名均無持有者；結果目錄沒有confirmation_a/b。
+交接證據：results/macos/fps_sweep/hardware_handoff.txt。
+沒有殘留中的已知硬體測試；本輪未要求使用者拔插或改動韌體。
+最終離線核對：原套件57項CHECKSUMS.sha256全部符合，native binary仍為上列SHA。
+結論仍限單次逐級初掃：ACK失敗門檻尚未找到；59首次出現初始化等待幀取代，
+不宣稱58為穩定上限，也不宣稱60 FPS的歷史逾時已修復。

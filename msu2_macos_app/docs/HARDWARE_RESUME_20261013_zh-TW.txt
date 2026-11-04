@@ -1,0 +1,58 @@
+MSU2 Mini Studio v0.2.0 — 2026-10-13 硬體生命週期證據覆核
+分析角色：GPT-6 Astra / ultra；僅讀既有檔案及原始碼，未存取硬體、序列埠或 IOKit，未執行測試。
+結果目錄：results/macos/app_v0_2_resume_20261013_20261013_020423
+
+結論
+
+本輪預定的 production Controller 硬體生命週期驗證通過：連線、色條單張、moving 合成來源串流、暫停、恢復、停止保留連線、閒置後同一連線重新握手、再送色條、斷線釋放序列埠均有相符證據。成功執行 exit_code=0，未記錄握手失敗、ACK 逾時或傳輸錯誤。此有限範圍不需要追加硬體測試。
+
+這是以獨立 hardware_session 驅動程式呼叫應用程式 production Controller 的驗證；沒有操作 GUI 控制項、擷取桌面、擦寫外部圖片素材 Flash，也沒有量測或目視確認 LCD。不能由本輪推定上述功能均已完成實體驗證，亦不推導任何速度比較或面板更新率。
+
+證據與執行隔離
+
+1. 已讀 AGENTS.md、index.json、兩次 run JSON/stdout/stderr、成功執行 events.log 與 stream_1.csv、前後 ownership JSON、編譯命令、雜湊紀錄，以及 Controller、Session、LatestFrame、SerialGuard 與測試驅動程式原始碼。
+2. index 記錄裝置為 CH32x035、VID:PID 1a86:fe0c、serial 0123456789；cu 與 tty 別名均在成功執行前後的 lsof 檢查範圍，exit code 均為 1。controller 以預設 Dependencies 建立 SerialGuard；成功路徑及最後釋放事件支持共用鎖正常取得／釋放。分析者沒有重新查詢裝置。
+3. 成功執行時間為 2026-10-13 02:05:05.876 至 02:05:17.620（Asia/Taipei），約 11.744 秒。command_escalated.txt 保留執行命令與 MSU2_SHARED_LOCK_ROOT。
+4. 初次 sandbox 嘗試 exit_code=1，stderr 明確為開啟序列埠 EPERM / errno 1；stdout 的 sent=0、bytes=0，events 沒有握手成功。Controller 在建立 SerialTransport 時即失敗，尚未建立 Session 或送出握手命令，因此不應歸類為裝置握手失敗或 ACK 逾時。後續成功執行使用同一 frozen driver。
+
+獨立重算與統計解釋
+
+階段                    觀察結果
+connect                 ready，sent=0，bytes=0
+前置色條單張            ready，sent=1，bytes=33,618
+pause                   paused，串流 sent=151，bytes=124,464
+stream_stop             ready，串流 sent=165，bytes=165,342
+idle_send               ready，sent=166，bytes=198,960，reconnects=1
+disconnect              disconnected，計數保留
+
+CSV 共 165 筆資料、165 個不同 frame ID，全部 outcome=sent、layout=off、dropped_total=0。frame ID 為 0..150 與 152..165，缺 151。逐筆 wire_bytes 加總為 165,342，與 stream_stop 完全一致。更新類型為 full 2、bounding_box 121、tiles 40、runs 2；full 位於 ID 0 與 ID 152。暫停前 151 筆／124,464 bytes；恢復後 14 筆／40,878 bytes。
+
+開始串流時 controller.cpp:164 會重設 sent、bytes、dropped、unchanged 與來源統計。因此最終 166 與 198,960 代表本輪串流加上閒置後單張，並未包含前置色條。若合計整個成功 driver 的已完成畫面更新，則為 167 次與 232,578 frame-command bytes。這些 bytes 是 Session::send 計入的視窗命令及畫面 payload，不能稱為含握手、回覆或 USB 開銷的全部實體線路流量；一個更新亦可能包含多個矩形傳輸。
+
+events 明確記錄 capture_slots_missed=0、waiting_frames_replaced=0，分別代表來源排程沒有記錄逾期跳槽，以及等待佇列沒有記錄覆寫。它們不是「所有來源畫面皆有傳送」的證明。controller.cpp:189 在 pause_generation 改變或恢復時重設 seen_id，並使差分參考失效；:192 會在暫停、generation 改變或畫面早於 resume_time 時捨棄取出的畫面，這些分支沒有 CSV 列且不增加上述兩項計數。缺失 ID 151 位於這個交界，與此邏輯一致；既有紀錄不足以判定實際命中哪個捨棄分支，不能斷言其具體擷取時點。ID 152 以 full 更新，支持恢復後使用新的完整參考。dropped=0 只描述程式目前計數範圍，不能報告成全來源無損。
+
+暫停與速率快照
+
+hardware_session.cpp:21–22 先等待 150 ms，再檢查後續 250 ms 的 sent 不增加；exit 0 證明這項檢查通過。恢復後另有 14 筆成功更新，之後停止回到 ready。這證明本次暫停能在檢查窗內穩定停止傳送，並成功恢復；不等同於按下暫停瞬間中止已在途的更新。
+
+pause 的 host_fps 仍是前一次傳送留下的 30.1901；停止、單張與斷線也保留最後的串流值。pause() 本身只更新暫停狀態及 generation，若 consumer 等在 LatestFrame::take，就尚未走到將 host_fps 歸零的迴圈分支。這是快照值可能過時的顯示語意，不能據此判定暫停期間仍在送畫面。app.mm:408 直接顯示該欄位；本輪不延伸為速度調查。
+
+重新驗證、錯誤分類與 ACK 邊界
+
+成功事件有一次初始 MSN 握手、一組閒置重新驗證開始／成功、兩次單張完成、一組串流開始／停止、一次來源統計與一次斷線，共 10 行。idle 前驅動程式等待 5,500 ms，超過應用程式的保守 4,500 ms 門檻。controller.cpp:104–116 保留相同 Session／Transport，再呼叫握手並增加 reconnects；事件也明確記為「同一連線」。因此 reconnects=1 是成功的閒置重新驗證，沒有證據顯示一次斷線故障、自動重連救援或重新開埠；auto_reconnect 預設為 false。
+
+成功執行全部 phase 的 handshake_failures、ack_timeouts、transport_errors 均為 0，CSV 沒有 failed 列，stderr_escalated.log 為空。Session 的窗口 ACK 先於 payload，send 成功代表主機傳輸路徑完成，不提供面板完成回執；MSN 握手回覆同樣不是 LCD 完成確認。缺少 LCD 目視或面板回讀證據並不影響上述主機生命週期結論，但限制了可對外宣稱的範圍。
+
+可追溯性與 production 對應
+
+分析時以檔案內容重新計算 SHA256，結果與執行前留下的紀錄相同：
+hardware_session：f912e545f48b51d2946b8366d09942b914efdc9e916243286da41c3696b896b8
+frozen / build / dist msu2ctl：8f758300af67ff4987e6d2470555960e7f092e5a4246611d0268f3601eb35b08
+build / dist MSU2MiniStudio：456a00a6d75c684abcc6860237b8da6e9709ba895daa3099f6a348c215a16a1c
+controller.o：2ac8ae1f1eba814da6dec32ca94bc852c3c8f65116a2fe9475941eb715f4dbb2
+controller.cpp：198bfe3ee52dfb878c9cf0fca43297723273e8cf127820779f8eca1e4cf9f986
+hardware_session.cpp：f0b401ca28b6489b67f62647dbad10012f979fd260586797236b7d84e5ed06e3
+
+compile-command.txt 將既有 build/obj/controller.o、core_*.o、serial_guard.o、flash.o 與 platform.o 連入本次結果目錄；應用程式 build.sh 同樣使用這些 production 物件。驅動程式使用預設 Controller，沒有注入假傳輸或假租約。driver、CLI、GUI 的 dSYM relocation 資料中，共同的 88 個 Controller 相關非零大小符號，其 symObjAddr 與 symSize 全部一致，包含 stream、single、pause 與 renew_idle。此靜態對照補強了 production 實作對應；不是執行 GUI 的證明，也不是對每一機器碼位元的等同性證明。
+
+本次僅新增覆核報告與結構化 analysis.json；未重建、修改或執行應用程式及硬體驅動程式。建議以「本輪 Controller 硬體生命週期驗證通過」對外報告，並保留上述統計邊界；無需為本輪追加硬體測試。

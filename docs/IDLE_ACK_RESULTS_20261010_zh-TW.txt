@@ -1,0 +1,127 @@
+MSU2 Mini macOS：相同全幅閒置對照與固定60 FPS重連
+準備於2026-10-10，Asia/Taipei；實際啟動／結束時間以manifest UTC為準。
+實機：2026-10-10 23:58:04 至2026-10-11 00:02:12，Asia/Taipei。
+主代理覆核日期：2026-10-11。
+
+目的與方法
+依使用者授權，檢查首張慢與起始等待幀取代是否需要用休眠假說解釋，
+並確認60 FPS成功是否依賴先由較低FPS逐級升高。
+原版C++、DeltaPlanner、pair與latest-frame更新演算法保持現狀。
+GPT-6 Luna／medium單一子代理操作設備；主代理只作離線準備、分析及覆核。
+每程序均用共同SerialGuard並lsof檢查cu/tty兩別名，無已知持有者才開埠；
+程序退出、回收後釋鎖，檔間3秒。不自動重試同一個失敗案例。
+
+原版對照
+固定moving/diff/pair、keyframe0、chunk60、timeout2000ms，每輪30秒。
+先直接60 FPS，再45控制、再60；完成閒置對照後再60。
+每輪是新程序＋完整MSN banner／MSNCN握手，不將既有連線直接延用。
+這是重開程序對照；未拔插、不代表真正冷開機，也未量測USB電源狀態。
+原版SHA256：4b64f7a3b542653ac843551cd0d7193adbb339c09ff64840e460e992307d960c。
+
+相同全幅閒置probe
+獨立診斷程式使用原版protocol/image/session/transport，不改握手與ACK模式。
+將make_pattern(moving,0)一次編碼成全幅pair：payload32952 bytes、含window共32970。
+保持同一serial連線、同一Session、同一EncodedFrame，重複送出完全相同的command bytes。
+chunk60每次551個app-level write；chunk3840每次10個app-level write。
+記錄open、完整handshake、每次window ACK、payload寫入、send耗時及失敗phase。
+開始與每次閒置後都有立即重送控制：
+  升序：first、immediate、idle5s、immediate、idle30s、immediate、idle60s、immediate。
+  反序：first、immediate、idle60s、immediate、idle30s、immediate、idle5s、immediate。
+兩組各自新程序，能降低單一閒置測試順序的影響；各時點仍僅各一次／組。
+閒置是應用層沒有read/write，不等於USB bus已suspend，更不等於MCU/LCD低功耗已啟用。
+每次失敗即停止該probe，不在同一Session繼續送剩餘畫面。
+沒有frame-complete回執／光學量測，write完成仍只代表macOS接受資料。
+
+3840與精確patch trace
+另以同一資料、同一probe作chunk3840對照；遇首個失敗停止，不把它當已通過參數。
+只有當本輪原版stream重現LCD ACK逾時，才補一個30秒的patch trace診斷輪。
+該診斷版複製原main/transport到results，加入frame_id、patch_index、patch_count，
+底層read/write保留固定記憶體ring，結束才輸出最後1200個事件。
+FAIL_CONTEXT能指出失敗來源幀、該幀第幾個矩形；TRACE能對照最後TX/RX及OS短寫。
+原Session與planner仍沿用原碼；診斷新增計時可能改變排程，成功不等於原版已修復。
+若原版未重現ACK故障，就不跑條件式trace，不把未執行算成通過。
+
+工具與驗證
+  python3 scripts/macos/build_idle_diagnostics.py
+  python3 scripts/macos/run_idle_ack_suite.py --dry-run
+唯一硬體操作者執行：
+  python3 scripts/macos/run_idle_ack_suite.py --label idle_reopen_a
+build.json保留編譯命令、兩個獨立binary及生成source的SHA；suite在開埠前後核對binary。
+probe --self-test只用FakeTransport，驗相同bytes、551次chunk寫入、握手與ACK/payload失敗歸因。
+新增probe紀錄驗收、遺漏／失敗資料拒收、child在釋鎖前回收的mock tests。
+目前30項Python工具單元測試通過，probe FakeTransport self-test通過。
+
+結果
+實機結果目錄：results/macos/idle_ack/20261010T235804_666506+0800_906bf5c5/hardware。
+manifest.status=completed；suite exit1因三個診斷案例逾時，已依原計畫保留失敗、繼續下一檔。
+共4個原版stream、3個probe實際執行；条件式patch trace未執行，不列通過或失敗。
+
+案例                                  要求擷取  已送出  等待取代  結果
+original_60_first                      1800      1799    1         PASS
+original_45_control                    1350      1350    0         PASS
+original_60_repeat                     1800      1799    1         PASS
+original_60_after_idle_suite            1800      1800    0         PASS
+全部完整握手、exit0、CSV/log與要求captured數一致；原版binary前後SHA符合。
+前兩個60 FPS僅缺frame_id=1，drop自第一CSV列=1後不增加；最後60全部送出，0取代。
+三輪60 host_send_fps為59.9973／59.9909／60.0244。
+這次直接啟動60 FPS即可完成，不需要這一輪先跑45暖身；不是冷開機／拔插試驗。
+只證明本moving負載的3個30秒成功，不消除歷史496／1672列後ACK逾時的失敗紀錄。
+
+chunk60相同全幅probe
+升序：first通過、immediate通過、idle5s通過、immediate通過，idle30s失敗。
+  5s實際5005.113ms，ACK0.414667ms、payload36.064417ms、send36.584667ms。
+  30s實際30003.560ms，其後window ACK等待2000.906ms逾時；尚未開始該次payload。
+  失敗後停止此probe，所以升序60s及其後控制未執行。
+反序：first通過、immediate通過，idle60s失敗。
+  60s實際60005.080ms，其後window ACK等待2001.353ms逾時；尚未開始該次payload。
+  失敗後停止此probe，所以反序30s／5s及其後控制未執行。
+共6次成功全幅send，每次32970B／551 calls；payload耗時34.530～36.064ms，
+包括首張、立即重送與閒置5秒後重送。大量資料的寫入成本不是只在首張才出現。
+立即重送ACK2.694～3.785ms，比first／idle5s的0.271～0.415ms慢，但仍成功。
+這符合OS接受payload後、設備仍需要處理剩餘資料的可能性，不能由write完成判定LCD完成。
+
+主代理新增的關鍵觀察：閒置失敗時仍有MSN01公告
+升序30s失敗時，window_write W於37064.940ms返回，第一個RX於37064.952ms，
+其size=462，前六bytes=00 4d 53 4e 30 31；其後每約100.15～100.32ms
+收到完整6-byte相同MSN01，持續到ACK期限屆滿，沒有匹配02 03的開窗ACK。
+反序60s失敗時，window_write W於60080.061ms返回，隨後有多筆RX（512／512／
+512／508／206 bytes），六byte樣本符合MSN01的對齊／跨讀取位置；其後每約
+100.15～100.35ms收到完整6-byte MSN01，也沒有開窗ACK。
+OBS對較長read只保留前6bytes，不能聲稱整筆462／512-byte內容已逐byte核驗。
+可確認的是：失敗後仍持續收到新的週期MSN01，與完全無RX的3840案例不同。
+
+最符合這輪資料的假說：閒置後投屏會話失效／回到公告等待握手狀態，
+或裝置重置後重新公告；USB讀取路徑在失敗時仍工作。
+目前沒有firmware／USB power trace，不能判定是哪種狀態轉換，更不能宣稱從未休眠。
+未在閒置期間持續read，故不知道第一個MSN01何時出現，也不能從積壓量算出精確期限。
+5秒通過、30／60秒失敗各一次，尚不能將5～30秒當已證明的固定超時區間。
+後續須直接量到公告出現時點，再以較短閒置間隔與重複輪確認。
+
+chunk3840對照
+first ACK0.287750ms、payload47.956417ms、send48.341166ms，32970B／10 calls。
+下一次同資料full僅隔0.214ms；window write被OS接受後，兩秒內所有read均size0，
+在2000.350ms逾時。沒有收到MSN01公告，也未送出第二次payload。
+此例沒有長閒置，故不能用30／60秒的會話退出假說統一解釋；仍須查大chunk突發、
+command解析／USB傳輸狀態。原先1 FPS與小payload失敗證據也保留，不以加延遲當已修復。
+
+結論與改善優先順序
+1. 首張約36ms與frame1等待取代，主要仍符合全幅資料成本＋latest-frame佇列。
+   多次暖連線full仍花相近payload時間，使單純首張喚醒延遲不足以解釋這個成本。
+2. 閒置後ACK逾時有新的狀態線索：收到MSN01應與完全無回覆分開記錄。
+   下一個優先實驗是保持埠開啟、停止TX並持續記錄RX，量第一個MSN01時點；
+   再驗同一埠完整MSNCN握手後重送full能否恢復。此法量應用協定狀態，不是USB省電量測。
+3. 若證實會話會閒置退出，產品應辨識會話失效、重新完整握手，再重建full畫面基準；
+   重新連線必須讓planner失效，不能沿用舊reference或把MSN01當LCD ACK。
+   目前沒有修改產品實作，也沒有已驗證的heartbeat命令，不先加入未知keepalive。
+4. 持續60 FPS仍是可測工作目標；本輪active stream不重現故障，但歷史中途ACK
+   逾時不能由新的長閒置假說直接解釋，仍需失敗frame/patch與TX/RX精確trace。
+5. chunk3840保持未通過。首次full的write成功只表示主機接受，無device完成證據。
+
+收尾與證據
+子代理：results/macos/idle_ack/hardware_handoff.txt。
+主代理逐案驗收與最後window的RX事件：上述hardware/primary_review.json。
+原始逐案CSV/log、command、exit、hash與guard證據均在同一hardware目錄。
+子代理結束時check_idle確認cu／tty兩別名lsof exit1無owner，沒有已知殘留硬體測試。
+沒有新增本輪目視／光學FPS量測，不將host FPS當LCD可見FPS。
+原套件57項checksum再次全部符合，正式native binary與演算法均未修改。
+初次一般sandbox啟動因EPERM拒絕開埠，未送資料；dry-run及該拒絕不列硬體輪數。

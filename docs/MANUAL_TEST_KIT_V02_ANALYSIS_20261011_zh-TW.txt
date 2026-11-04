@@ -1,0 +1,79 @@
+MSU2 Mini 手動測試工具 v0.2.0 改版與驗證
+日期：2026-10-11（Asia/Taipei）
+
+交付結論
+
+已完成使用者要求的兩項功能，未發現交付阻擋：
+1. 單張 send 省略 --hold-open-ms 時採用 13 ms，明確指定 0 或其他
+   0..60000 ms 值仍可覆寫。底層 C++ send 同步採用此預設。
+2. 預製影像可用 --source 1..11，亦支援 01..09。11 等同 11_white，
+   完整名稱、內建 pattern 及自訂 PPM 路徑保留。
+
+手動工具版本為 0.2.0，可使用 --version 查詢；底層 C++ 候選版為 0.3.1。
+13 ms 是使用者指定的暫用預設，後續繼續依實機觀察調整。
+本輪沒有執行物理測試，也未建立 LCD 完成回覆或根因已修復的結論。
+
+實作與紀錄
+
+Python 以 None 區分未指定 hold：send 使用 13，stream 使用 0 且命令不傳
+hold 旗標。stream 明確指定非零 hold 仍拒絕，未增加每幀或結束時等待。
+數字編號依預製完整名稱的數字前綴解析，未知或歧義編號在啟動前拒絕。
+靜態編號 8/9 仍是 PPM，沒有改成動態 gradient/noise pattern。
+metadata 保存 kit_version、source_requested 原輸入、source 完整名稱、
+有效 hold_open_ms 及 hold_open_ms_explicit，保留原執行與守衛證據欄位。
+
+C++ main.cpp 相對舊 hold-open 封裝只有版本、help、send 預設值三行變更。
+CMake 的 project VERSION 同步為 0.3.1；README 與 PTY 測試另有必要更新。
+其他 src/include 與舊封裝一致，協定、傳輸、局部更新及分區演算法保留。
+
+測試與分析分工
+
+GPT-6 Luna medium：建置與離線測試；未開啟實體 MSU2 序列埠。
+GPT-6.1 Sol xhigh：只讀程式審查、結果分析、雜湊及封裝核對。
+主代理：實作、文件、封裝，並統整證據與結果。
+
+證據目錄：manual_test_kit/results/offline_manual_v02_20261011/
+每個 command、exit、stdout、stderr 分別保存在檔案中。
+完整 audit 細節：manual_test_kit/results/offline_20261011T101550+0800/
+
+第一階段：build、offline_audit、integration_pty、hold_open_pty 均 exit 0。
+覆蓋所有數字與補零別名、來源保留、預設/顯式 hold、stream 規則、拒絕案例、
+既有守衛/中斷收尾、離線影像與編碼，及 PTY 傳輸內容一致性。
+PTY 記錄預設 13 ms 與顯式 13 ms 的實際等待均約 16.3 ms；0 ms、
+1000 ms 及 SIGINT 案例通過。傳輸位元組與解碼像素在各等待設定間相同。
+初次短 hold 驗證被舊測試的 lsof/150 ms 觀察延遲干擾；將該檢查限於
+較長 hold 後重跑通過。這是測試觀察方式問題，不是實體裝置測試結果。
+
+第二階段：補上 send_default/send_zero 的 fake-guard/fake-child 案例，
+只重跑 launcher_checks（共九案，含所有既有生命周期案例），exit 0。
+新增兩例驗證 source11→11_white、原輸入、有效 hold13/0、explicit 旗標、
+command、影像 SHA、csv_summary=None 及 child_exit 早於 guard_exit。
+沒有重跑與此次新增案例無關的已通過測試，也沒有重建未變的程式。
+
+版本對應需保留：
+  初次完整 audit 腳本 SHA：
+    a5a362fe9001438bbab27ed00d3c39fc3385d759165ecbfa8d694c4f320790ce
+  補兩案例後最終 audit 腳本 SHA：
+    be521b520bf16c84f32b978fa39a7f60d86db5a543ee884eb3a370167a32f110
+最終腳本的證據在 launcher_rerun.* 與 launcher_rerun.SHA256.txt；
+較早 SHA256SUMS.txt 的 audit 腳本雜湊對應初次完整 audit。
+不宣稱初次完整 audit 已用最終測試腳本全套重跑。
+
+建置執行檔 SHA-256：
+  72a99fbc87eaac91c86abbabf3766a303d8c7d02c5d678d3d01d5853bb0ff2c2
+
+封裝核對
+
+dist/MSU2_MANUAL_V02_RELEASE_20261011.json 保存版本、預設與封裝雜湊。
+兩個新封裝及 workspace manifest 逐項一致；舊封裝保留。
+封裝不含 results、build、__pycache__ 或本機執行檔。
+
+  dist/msu2_manual_test_kit_v0_2_0_20261011.tar.gz
+    30 檔案（29 筆 manifest）；SHA-256：
+    62df656f4dc6e5cbfbe0e1e38f5b828d22ed77dd146b67e35ac0902cb7bf6fea
+  dist/msu2_linux_v0_3_1_source_20261011.tar.gz
+    28 檔案（27 筆 manifest）；SHA-256：
+    a1fabd05f66d0b75f39b0bef69f0a627200e58e50c1b5b1451b20b158ec5ee60
+
+離線證據確認參數、程序生命周期及主機協定模型，無法驗證 USB/韌體/LCD。
+實際等待及目視顯示效果仍由使用者後續記錄。

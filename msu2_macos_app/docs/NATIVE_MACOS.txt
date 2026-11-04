@@ -1,0 +1,37 @@
+Native macOS implementation notes
+
+The native Cocoa UI runs the C++ controller asynchronously. Startup does not
+open a serial device, request screen-recording access, or capture the desktop.
+The permission button is the only path to CGRequestScreenCaptureAccess.
+Desktop preview and streaming require an explicit action and existing access.
+
+ScreenCaptureKit uses the main display, a centered 2:1 source rectangle,
+160x80 BGRA output, a 60 FPS maximum capture cadence, and a three-frame queue.
+Enumeration/start waits are bounded to five seconds each. Waiting for the
+first usable frame is bounded to three seconds. An idle display reuses its
+last complete frame; blank/suspended/stopped states and delegate errors stop
+the source with an actionable message. No removed legacy capture API is used.
+
+Apple API references consulted during development:
+https://developer.apple.com/documentation/screencapturekit/scstreamconfiguration/sourcerect?language=objc
+https://developer.apple.com/documentation/screencapturekit/scstreamconfiguration/minimumframeinterval?language=objc
+https://developer.apple.com/documentation/screencapturekit/scshareablecontent?language=objc
+https://developer.apple.com/documentation/screencapturekit/scstream?language=objc
+
+ImageIO decodes orientation-corrected thumbnails bounded to 2048 pixels,
+composites transparent pixels over black, and then uses the shared centered
+160x80 resize/crop operation. PPM uses the shared image reader. Flash previews
+retain immutable prepared pixels so the confirmed image cannot change if its
+source file is replaced before the controller starts writing.
+
+Offline verification:
+  tests/platform_smoke.mm checks PNG top/bottom orientation, transparent PNG
+  compositing, output dimensions, PPM round-trip pixels, and missing files.
+  --ui-smoke bypasses device enumeration and desktop capture, uses a local
+  pattern for visual QA, and exits after the initial native window renders.
+  --snapshot <path> writes a flattened PNG of the window content.
+  --snapshot-tab flash|history selects another tab for an offline screenshot.
+
+GUI smoke checks cover startup and layout only. They do not establish serial
+compatibility, actual LCD refresh rate, screen-permission interaction, or
+physical Flash erase behavior.

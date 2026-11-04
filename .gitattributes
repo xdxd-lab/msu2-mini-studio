@@ -1,0 +1,2 @@
+# Preserve upstream license copies byte for byte, including their whitespace.
+MSU2_MINI_CPP_v0_2_20261010/msu2_cpp_v0_2/docs/runtime_licenses/** -whitespace

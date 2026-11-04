@@ -1,0 +1,52 @@
+GUI 重建停滯分析 — 2026-10-12
+分析：GPT-6 Astra / ultra；依主代理提供的 Usage 89% remaining 選用。
+範圍：離線 GUI 取樣、原始碼及主代理診斷結果；未存取硬體、序列埠或桌面擷取。
+
+結論
+此故障是 UI 重建移除 NSScrollView 時拋出 Auto Layout 例外，導致 QA 後續
+排程未建立；不是主執行緒死鎖。正式介面的原 scaleChanged: 也呼叫同一
+buildWindow 移除流程，因此缺陷不限於 QA。
+
+證據
+1. build/dark-ui-qa/gui_hang_sample.txt：PID 6245 共 1563 次取樣；主執行緒
+   1534 次停在正常 CFRunLoop / mach_msg 等待，並仍執行 tick: 與繪圖。
+   沒有 buildWindow、runQACase 或等待互斥鎖的主執行緒堆疊。
+   HIServices 執行緒另有 SOME_OTHER_THREAD_SWALLOWED_AT_LEAST_ONE_EXCEPTION
+   標記；控制器 worker 正常等待工作，沒有硬體 I/O 證據。
+2. 主代理於原重建流程加入 Objective-C @try/@catch 後，重現並捕捉：
+   "Not possible to remove variable:3335:<unknown var (bug!) ... from engine"
+   堆疊為 CoreAutoLayout _engineVar_rawRemove → removeConstraintWithMarker →
+   NSView _setLayoutEngine（多層）→ NSView removeFromSuperview →
+   NSScrollView removeFromSuperview → buildWindow+208 → runQACase+476 →
+   applicationDidFinishLaunching。例外發生於 800 ms 快照排程之前。
+3. 初始每案例各自啟動的 16 次 smoke 成功，因為沒有同程序拆除並重建視圖。
+   初始無進度的矩陣程序由主代理擷取取樣後，僅終止該 PID，exit 143；
+   此退出碼不是成功驗證。
+
+原因界線
+確認的故障點是既有 NSScrollView 視圖樹拆除時的 layout-engine 變數移除失敗。
+原視圖同時含巢狀 NSStackView、隱藏視圖自動脫離、跨視圖寬度限制。
+這些結構是合理調查方向，但現有證據尚未分離出是哪一條限制觸發內部錯誤；
+不能把初期的 windowDidResize 重入或新舊 ivar 混用假說當成已證實原因。
+單純加入 rebuilding guard 或 makeFirstResponder:nil，不能證明能修復此
+removeFromSuperview 內部例外。
+
+已採修正與評估
+主代理將縮放改為 applyScale: 原地更新既有視圖；buildWindow 僅建立一次。
+正式 scaleChanged: 與 QA 矩陣均不再拆除原 NSScrollView，並保留控制項、
+選項、預覽與操作狀態。applyScale 更新字型、間距、限制常數、圓角與 intrinsic
+size，最後重新計算響應式布局。這直接消除已證實的失敗路徑，優於猜測
+Auto Layout 拆除順序；沒有變更裝置顯示更新演算法。
+
+原始碼審閱注意事項：rememberScaleConstants 僅能列舉安裝中的限制。
+首次啟動若為窄視窗，leftWidth 與 flashLeftWidth 尚未啟用，需另外記錄
+其基準 -8，或在 applyScale 直接設定 constant=-8*value，避免縮放後首次
+切至寬布局仍沿用起始比例的偏移。此為小幅寬度偏差，不是原停滯原因。
+
+修正後證據
+主代理回報同程序 18 案例全部完成並 exit 0；build/dark-ui-qa/final_*.json
+及 gui_matrix_result.json 已產生。按鈕高度為 60 / 75 / 90 pt，頁腳皆在
+視窗範圍內，來源 payload 全部不變。此結果支持拆除例外已消除。
+當次 125% 兩個快照的邊框開關內部像素比對仍為 false；主代理另行處理
+backing-pixel 對齊。該渲染差異不等於本次布局停滯，應依後續快照結果
+獨立判定，不能由矩陣 exit 0 推定所有視覺驗證已通過。

@@ -1,0 +1,330 @@
+MSU2 Mini Linux C++ v0.3：獨立程式、離線證據與驗收分析
+分析日期：2026-10-11（Asia/Taipei）
+分析代理：GPT-6 Astra／Ultra
+狀態：定稿。已核對修正後原始碼、20 項最終證據雜湊及 27 檔原始碼封裝。
+
+本文根目錄為：
+/Users/aitask/Documents/ChatGPT/MSU2 Mini 燒錄程式反組譯開發 [Codex]
+以下相對路徑均由此解析。本文唯一寫入物為本分析報告。
+本代理與輔助唯讀審查代理均未開啟 MSU2、序列埠或 PTY，未執行測試，未修改產品或測試原始碼。
+測試結果來自操作者保留的紀錄；程式判斷來自唯讀原始碼核對，不把兩者混稱為獨立重跑。
+
+一、主要判斷
+
+四個 CLI 選項 off／bands4／center3／halves2 與最新設計共識相符。三個分區模式
+先建立全幅主機參考畫布，依來源 frame_id 安排區域，僅成功完成傳送後更新對應參考；
+失敗則使參考失效並停止。diff 和 pair 仍是互相獨立的策略與編碼層，沒有改寫既有韌體協定。
+
+初次候選版確有「到期 keyframe 被分區吞掉，並可能使恢復判斷永久偏高」的程式缺陷。
+審查另指出 center3 舊預估可能因缺少新傳輸樣本而停滯、失敗事件未留在 CSV／摘要、
+以及 max_stale_ms 在模式退出時漏算間隔。主代理已加入修正，本文後面逐一說明。
+最後重測為 core 14,883、delta 3,078,677、priority 299 assertions，完整 PTY exit 0。
+新增測試涵蓋短間隔 keyframe、分區內全幅、正常退出、keyframe 失敗及側區探測；
+本代理未發現會阻擋此 CLI 候選版進入原生 Linux 驗證的新缺陷，保留第六節限制。
+
+截至最後凍結證據，可證明的執行範圍仍僅為 macOS arm64 編譯、單元測試及 POSIX PTY 模擬。
+沒有 Linux 原生編譯／執行、Linux USB/TTY 驅動實測或 MSU2 畫面驗證。Linux 候選版這個
+名稱是目標平台，不是驗證完成狀態。適合進入下一階段原生驗證，不應稱已證實支援實機或 60 FPS。
+
+二、與指定聊天最新共識的對照
+
+已唯讀查閱聊天「MSU2 Mini 技術資料」
+01a12629-3ee2-7f13-94b2-12133b6828cf 的最新討論及相關前文。
+最新共識優先於較早的構想：側區不再固定只能漏一次；中央維持原有中→左→右節奏；
+漏更新以各區已排定時槽為分母；來源時間軸不可因傳輸成功或側區略過而停止。
+
+模式      幾何與順序                                      每區理想機會率
+off       正常全幅／原 diff 規劃                          依原更新策略
+bands4    (0,0,160,20)→(0,20,160,20)→                    R/4
+          (0,40,160,20)→(0,60,160,20)
+center3   中(40,0,80,80)→左(0,0,40,80)→右(120,0,40,80)  R/3
+halves2   左(0,0,80,80)→右(80,0,80,80)                   R/2
+
+R 是來源／排程目標頻率，不是 LCD 實測刷新率。center3 略過側區不會把釋放的時槽
+立即改成更多中央更新，因而沒有把每次平均 1/3 屏意外提高成每次 1/2 屏的反效果。
+bands4 和 halves2 沒有主動略過分支；這不保證來源佇列永遠不掉幀。若其排定時槽
+被 queue replacement 漏掉，依使用者共識應判定該負載下模式仍撐不住。
+
+實作依據：msu2_linux_v0_3/src/priority.cpp:9–15、18–23、120–123、157–162、175。
+CLI 僅 stream 接受 --priority-mode；main.cpp 的 parse 及命令分派保持單一選項。
+未加入第五個三橫帶選項，符合「先測四橫帶能否撐住，再追加比較」的順序。
+
+三、演算法、資料流與可以支持的結論
+
+1. 來源與佇列
+main.cpp:360–375 的 producer 以固定目標 period 擷取，以來源 i 產生圖樣；
+include/msu2/latest.hpp:13–24 只保留一張等待影格，正在傳送者不會被覆蓋。
+來源 ID 缺口會依當時 active epoch 映射成各區 missed_queue，而非悄悄重新排列輪次。
+在持續過載時，固定倍數的來源缺口仍可能反覆命中同一個 phase，導致某區很久輪不到。
+這是本次來源時槽定義下可觀察的失敗狀況；不能用「沒有 intentional skip」推論沒有飢餓。
+
+producer 若擷取本身超過 period，會把下一次 deadline 重設到當下；它不是硬即時時鐘，
+也沒有為未曾產生的時間槽補造 frame_id。跨機效能比較必須同時保留實際產生時間與來源數。
+
+2. 參考畫布
+主機 committed 是最近成功傳送的全幅合成畫布，各區可以來自不同來源 ID。
+main.cpp:191–218 比較／提交區域；分區成功後以 committed 更新 DeltaPlanner；
+恢復正常 diff 時比較的是這張合成畫布，能補齊仍舊的區域，不會把未傳側區假裝已完成。
+unchanged 表示所選區與主機參考逐像素相等，沒有發送 window；不是成功傳送一幀。
+來源比對使用 RGB565，故 RGB888 有變不一定形成新的裝置像素值。
+
+Session.send 完成只表示既有開窗 ACK 和主機 write_all 路徑完成。對區域外保留像素、
+LCD 完成時刻與畫面品質仍須實機驗證。任一後段 patch 失敗，裝置可能已收到前段 patch；
+主機 invalidate／停止可避免沿用不確定參考，不能把已傳出的畫面回滾。
+
+3. 成本模型與切換
+priority.cpp:53–73 的 EWMA alpha=0.25，把成功傳輸分解成每個 18-byte window 的
+開窗／ACK 主機時間，以及每 payload byte 的主機寫入時間，再加當前擷取與準備時間。
+它是主機成本啟發式，不是 USB bus 吞吐或 LCD 處理速度的量測。
+
+進入條件是原方案預估 >=85% period，或前次實際忙碌 >=95%，或發現新 queue drop。
+退出需要連續至少 max(fps,20) 個安全觀察、在分區至少 1000 ms，並同時滿足原方案
+預估 <=60%、前次實際 <=70%、沒有新 drop；若 keyframe 到期，該全幅本身的預估也須
+<=60% period 才可累積安全觀察，並在 dwell／streak 達標時退出。
+依據 priority.cpp:126–153。README 所稱「低於」應按程式的 <= 邊界解讀。
+
+capture_ms 在 producer 測得、傳輸在 consumer 執行；相加是保守的總工作量指標，
+不是兩執行緒管線臨界路徑的精確估算。driver buffer、ACK 固定成本、chunk 次數與
+頁面壓縮率都會讓線性 byte 外推失準。每輪先算完整 full/diff 再算區域，也沒有免除
+完整規劃的 CPU 成本。閾值必須以 Linux 實測校準，不能當設備能力規格。
+
+4. raw 成本作為核對基線
+依 src/protocol.cpp:32–71，不含回覆資料的 raw 成本為 18 + 390×ceil(像素數×2/256)。
+
+送出範圍       單次 wire bytes    每輪全部區域 wire bytes
+160×80 full       39,018                  39,018
+160×20 bands       9,768                  39,072（4 區）
+80×80 halves      19,518                  39,036（2 區）
+center3          19,518／9,768             39,054（中／左／右）
+
+分區縮短一次佔用並降低各區更新頻率；完整一輪總 bytes 不會因切割而下降。
+pair 仍在完整 256-byte 頁中找重複四-byte 組，並非跨幀差分；噪聲通常接近 raw，
+只改少量但分散像素也可能需要每區整片重送。不能把 1% 來源變動直接當成 1% 傳輸量。
+
+四、本次找出的缺陷及修正覆核
+
+A. 到期 keyframe 被吞掉：初版實際缺陷，最後原始碼與新增重測均已核對。
+初版 main.cpp 以 last_full 判斷 keyframe，將 full_plan 強制全幅後交 scheduler；
+active 分區卻丟棄該計畫改傳一區，last_full 只在正常全幅成功後更新。
+當 forced-full 預估一直 >60% period，即使來源靜止且各區已相等，safe_count 仍無法
+累積；unchanged 又不更新 estimator，故可永久停留分區，定期 full 也一直未真正送出。
+
+修正版 main.cpp:390–409 以未強制的正常 full/diff 估值判斷恢復；到期則另建 full。
+:418、434 使 keyframe 不受區域替代或 side skip；成功 commit 整張、更新 last_full；
+priority.cpp:146–153 要求到期全幅本身也夠安全，:211–221 在維持分區時保留 active/epoch，
+僅原排定區 due/sent +1，
+但所有區同步來源 ID 與時間。新成本仍回饋 actual／EWMA，慢 full 不會被視為輕量更新。
+CSV 用 priority_keyframe_full 識別實際全幅，region/region_slot 仍代表原排定時槽；
+閱讀者不能將該行 region 名稱當成實际 wire 矩形。
+
+本代理也覆核了修正中的短間隔邊界：若 keyframe_ms 小於來源間隔，可能每槽都到期；
+不能用 maintenance_full 布林值無條件阻止退出。最後改為普通計畫與到期全幅各自預估，
+兩者都安全才能累積 streak，因此每槽都是低成本 full 也仍可正常恢復，昂貴 full 則重設 streak。
+
+「有界」是指到期後下一個被處理來源即嘗試 full，不是保證每 keyframe_ms 毫秒準時
+完成。in-flight 工作、來源排程、I/O timeout 或程序結束都會影響時刻；失敗應停止。
+
+B. center3 無新樣本造成側區停滯：已加入受限探測並有新增離線回歸證據。
+初版一次慢 ACK 可使側區預估永久高；若後續中央 unchanged、左右持續變動且 keyframe=0，
+左右全部 skipped，沒有成功傳輸樣本能更新 EWMA。刷新 actual_busy 本身解不開這個迴圈。
+修正版 priority.cpp:167–184 在側區距上次主機同步 >=1000 ms、且前一時槽實际 <=70%
+時允許探測；前一 actual >=90% 仍拒絕。成功探測可帶回新樣本並重設該側同步時刻。
+
+這是「舊估值時有限度重新嘗試」，不是已證明保住中央的排程保證。
+程式只檢查前一時槽低忙碌，不是連續一秒低忙碌；1000 ms 是側區同步年齡。
+如果真正鏈路仍慢，探測可能阻塞後續中央並導致 queue misses，必須讓統計顯示此代價。
+現階段勿把這個常數視為最佳值，亦不得藉探測隱藏 dropped/missed_queue。
+
+C. 失敗紀錄與 no-commit：已加 adaptive_failure；仍有明確觀測邊界。
+初版 failed counter 在 throw 後沒有輸出機會，CSV 和末尾摘要均看不到它。
+修正版 main.cpp:472–491 先 invalidate，再以 stderr 留下 frame、layout、原排定區、
+failure phase、ACK timeout 類別、已完成 Session.send bytes、當下 queue replacement。
+成功 CSV 不納入不完整更新，維持其完成時槽語義，這個分離是合理的。
+
+completed_wire_bytes 只加計已返回成功的 patch；失敗 patch 的 18-byte window 或部分
+payload 可能已送出卻不在此欄。此欄不是全部已接受 bytes，也不是線上總流量。
+keyframe 失敗事件的 region 是被替代的原排定區，不能單憑這個欄位推論失敗窗口尺寸。
+Session::wait_pattern（src/session.cpp:24–39）仍不保留 timeout 收到的 MSN／部分回覆；
+新分類不能判定 ACK 缺失的裝置根因，也没有加入握手、恢復或原始 RX trace。
+
+D. max_stale_ms：模式退出間隔已補；指標定義應保持克制。
+修正版 priority.cpp:124 在每次可觀察來源更新所有 active 區年齡，:228 在正常更新
+重設同步時間前先結算。維護 full 也先記各區間隔再重設。
+這是截至觀察點的「距主機最後確認相等／成功送出最大間隔」，不是像素確實錯誤的持續
+時間或 LCD latency；靜止來源的 unchanged 同樣可以推進同步時刻。
+程序最後一個觀察點之後、join／結束的尾段不會自動成為區域樣本，勿擴大其時間範圍。
+
+五、初次離線證據與稽核界線
+
+初次證據目錄：results/linux_v0_3/20261010T184032Z_macos-arm64/
+environment.txt、commands_status.txt、handoff.txt、sha256.txt 保留環境、命令、狀態與雜湊。
+原始終版門檻紀錄：build-frozen.log exit 0；test_core_final.log 14,883 assertions；
+test_delta_final.log 3,078,677；test_priority_final.log 110；integration_pty-final-pass.log exit 0。
+大量 assertions 多為逐像素核對，不代表同等數目的獨立負載／平台案例。
+
+本代理唯讀重新計算原 sha256.txt 的 15 項，初次核對時全部相符。也直接核對初次封裝
+dist/msu2_linux_v0_3_source_20261011.tar.gz，其 SHA256 為：
+c2dd2815901d610c435deb46e73076a581a235c414522a72c7d4251b6323a317
+封裝當時 27 個一般檔案，無絕對／.. 路徑或 link 成員。此為修正前版本，不能替代新版雜湊。
+
+SOURCE_BASE.json 的 19 個 v0.2 來源雜湊中，最初核對有 15 個完全未變，包括 protocol、
+delta、image、session、transport、capture、各原 headers、core/delta tests；變更集中在
+main、build/CMake、PTY suite，另新增 priority。這支持「保留既有底層演算法」的範圍。
+CLI 預設 chunk 改 60 是有意差異，不應宣稱 off 與 v0.2 預設 write-call 數完全相同。
+
+兩次非最終失敗未被刪除：
+- integration_pty-final.log 是零 window row 使用錯誤 canvas cursor 的測試模型問題。
+- integration_pty-final-pass2.log 是 240 FPS 下 wrap fault stimulus 未確保觸發，CLI 正常退出；
+  修正為 60 FPS／足夠來源時長後仍保留同一 35 ms ACK delay 及 multipart failure 驗證。
+本代理可核對保存的失敗訊息與當前測試修正一致，但沒有重跑舊版測試重現。
+
+初次三模式 PTY 測試是 pair＋預設 full、12 個來源，時間不足 1 秒，覆蓋進入、各區幾何、
+獨立解碼後合成畫布、side skipped、queue accounting，未涵蓋 adaptive diff／定期 keyframe
+或完整退出恢復鏈；因此初次全過與發現 keyframe 缺陷並不矛盾。
+PTY 的 MiniDecoder 獨立解析 6-byte 命令與頁暫存、對照 RGB565 canvas，是有價值的 wire
+正確性證據；它不模擬真實 USB 緩衝、MCU 消費、韌體 idle timer 或 LCD 掃描。
+
+六、仍需保留的風險與範圍
+
+1. 原生 Linux 與實機均未驗證。現有 executable 是 Mach-O arm64；build.sh 使用當地 C++
+compiler，不是 Linux cross-compile。CMake 的 CTest 只掛 core/delta/priority，PTY 必須另跑。
+最後 PTY footer 已改由 platform.system()/machine() 動態報告實際平台，修正初版固定
+macOS 字串的證據標籤問題；本次仍顯示 Darwin arm64。CMake 路徑本次沒有執行驗證。
+
+2. SessionOptions::write_chunk（include/msu2/session.hpp:11）仍為 3840，CLI 覆蓋成 60。
+對現有 CLI 不是錯誤；其他程式直接建立 Session 的預設不同。現有 core fast_options
+明確設 60，不能防止這個 API／CLI 差異。需在使用 library API 時明確指定或統一預設。
+
+3. 初握手 echo、orientation、window ACK 的底層 wait_pattern 共用通用 timeout 字串。
+adaptive_failure 只對進入串流後提供上下文；未來原生診斷仍需要明確 operation phase、
+有限長度 RX 原始資料、write 進度與 errno，才能分辨握手失敗、window ACK timeout、
+payload write timeout、disconnect，以及無任何 I/O 的排程 skip。
+
+4. timeout 不是整個 update 的單一 end-to-end 上限。Session::send 對 window write、
+ACK wait、payload deadline 各使用預算；多矩形 deadline 只在下一個 patch 開始前檢查。
+既有程序仍會失敗退出，但不能把 --timeout-ms 2000 解讀為整次更新一定在 2 秒內返回。
+這是沿用 v0.2 的行為，不是新分區功能引入的硬體結論。
+
+5. SerialTransport 不實作共享 serial guard／跨程序 port owner 排他鎖；Session owner
+檢查只約束該物件的執行緒。實體執行仍必須走專案規定的 guard、cu/tty aliases owner
+檢查和單一測試擁有者，不能因 CLI 只有一條傳送執行緒就省略這些步驟。
+
+6. Linux 輸入目前是 synthetic patterns 或 PPM；--desktop 在 Linux 明確拒絕。
+noise 依固定種子與來源 ID 可重播，每幀重新生成，但不是「精確指定比例且確保 RGB565
+值不同」的變動測試。沒有把新亂數圖等同 100.000% changed pixels。
+本版沒有 Linux 原生桌面擷取、百分比擾動 CLI、會話自動恢復、Windows 或 Rust 新開發。
+
+七、macOS 歷史證據對 Linux 的意義
+
+參考 docs/STATIC_TRANSITION_ASTRA_ANALYSIS_20261011_zh-TW.txt 及
+docs/SESSION_STATE_ASTRA_ANALYSIS_20261011_zh-TW.txt。
+三秒 static/no-TX 控制正常、六秒 45/60 FPS 恢復首 window ACK timeout 並收到 MSN01；
+MSN 在恢復 window 後約 11–16 ms 已讀到，舊 matcher 仍等約兩秒。
+隔離診斷在原 timeout 後，以同 fd 嚴格握手加 full 恢復成立；不是本候選版自帶修復。
+早先兩個 passive cycle 約 5.114 秒讀到公告等證據支持會話狀態轉換方向，但不證明
+精確通用門檻、USB suspend、MCU sleep/reset 或特定 firmware 內部機制。
+
+3840-byte chunks 的第二 window 問題、靜止會話失效與持續移動偶發 timeout 必須分組。
+macOS 45、46、…、60 FPS 初掃沒有建立 ACK 失穩 FPS 上限；59/60 的 startup replacement
+不能轉述成 60 FPS 硬體極限。Linux 的 chunk60 預設是較保守的起點，不是 Linux 成功證據。
+prefix ACK 只有既有 02 03 前綴意義，不可用來證明 LCD 全幅完成或無殘影。
+
+八、最有價值的下一階段實驗與驗收
+
+第一階段先完成原生 Linux 離線門檻。
+保留 distro、kernel、CPU 架構、compiler/Python、精確命令與 exit、source/package/binary
+雜湊；在目標 Linux 執行 build、三組 unit 及完整 PTY，不以 macOS 或 cross-compile 代替。
+保留 PTY CSV、stderr/stdout 與 wire／canvas 對照摘要，讓分析者可重算，不只留下 PASS。
+原生 CTest 與另行 PTY 均須 exit 0，且每項錯誤注入需確認真正到達預定故障點。
+
+第二階段用可重播來源測完整轉態，而非只用短噪聲進入案例。
+至少對三分區×raw/pair×full/diff，比較 keyframe0 與非零；包含低負擔→高負擔→低負擔、
+中央不變但兩側變動、first／temporary slow ACK 後恢復、持續慢 ACK、反覆多次進出。
+以相同 seed、初始 RGB565、來源 ID 與來源時刻比较四模式；精確比例擾動須不重複抽像素，
+並確保改寫後的 RGB565 值不同。另用區域標號／幀號和移動邊界驗證位置，噪聲用於負載。
+
+軟體驗收至少包含：首張全幅；所有 completed wire/window 能對上 CSV；獨立合成畫布
+與每區 reference 相符；due=sent+unchanged+skipped+missed_queue+failed（同範圍）；
+各次 source gap 的 phase 正確；bands4/halves2 無 intentional skip；center 不主動 skip；
+keyframe 到期有全幅 wire；未達安全退出條件時保留模式與 phase，分區內 full 成功後
+全部區同步、只原時槽 due/sent +1；
+keyframe／探測／後續 patch 失敗後不再送新更新、不提交失敗來源；安全 streak 未足不退出。
+瞬間低負載不應使模式抖動；再次變重仍應迅速進入，失敗注入不得靠重跑至通過掩蓋。
+
+第三階段才進入 Linux 實體 MSU2。
+依本次使用者最新明確指定，由 GPT-6 Luna／高、fork_turns:none 操作，優先於 AGENTS.md
+較舊的 medium 設定；每次先查兩個 aliases 與 shared
+guard，若有人持有則等自然完成，不中斷、不競爭。完成後由 GPT-6 Astra／ultra 唯讀分析。
+本報告沒有啟動或授權任何實體動作。
+
+先低負載確認握手、首 full、保留像素與分區位置，再用同素材、chunk60、prefix ACK 對照
+off／三模式；一次只改一個主要變數。確認基線後按 45、46、…、60 FPS 遞增，遇到觀察到
+的失穩即保留現場並分析，無需為達 60 而繼續加壓或調寬 timeout。
+每級至少記來源數、完成更新數、queue replacement、各區 due/outcomes/連漏/年齡、
+主機 prepare/write/ACK 分位數、模式進出及具體失敗階段。LCD 畫面／完成證據須另列。
+
+bands4/halves2 在測量區段任何新增 scheduled missed_queue，應列為該負載尚未撐住，
+不能以比 off 少掉幾幀就改稱通過。center3 允許側區主動略過，但需左右分開列漏失率、
+連續漏失、同步年齡，並核對中央實際機會與 missed_queue；使用者尚未訂固定側區漏失上限，
+不得自行捏造通過比例。warmup 與 steady state 可分列，但都須保留。
+
+最後分開做 idle/session 研究：keyframe0 下對照 3 秒與 6 秒停止 TX、記被 flush 前後的
+MSN 時間與原 ACK timeout，再評估早期會話失效辨識或嚴格 same-fd 重握手。自動恢復是
+另一個狀態機變更，不能因 macOS 兩個成功診斷就直接當 Linux 已驗證修復。
+
+九、修正後最終證據
+
+最終證據目錄：results/linux_v0_3/20261010T185938Z_macos-arm64/
+主索引：handoff.txt、commands_status.txt、environment.txt、sha256.txt。
+環境：Darwin 25.2.0／arm64，Apple Clang 21.0.1，Python 3.9.6。
+本次沒有 CMake、Linux compiler/runtime、Docker／Podman／QEMU 等可用原生或模擬環境。
+
+本代理重新計算 sha256.txt 的 20 項全部相符，含執行檔、三個測試 binary、四個測試
+source、main.cpp／priority.cpp／priority.hpp、主要 logs 及 handoff/命令/環境。
+production binary 的前八 bytes 為 cffaedfe0c000001，對應 Mach-O arm64，並非 Linux ELF。
+
+主要驗證結果（依保存紀錄，不是本代理重新執行）：
+- build-final.log：build.sh 完成；commands_status.txt 記 exit 0。
+- test_core.log：14,883 assertions，涵蓋協定／獨立解碼、影像、fake transport、latest queue。
+- test_delta.log：3,078,677 assertions，涵蓋 reference/commit/abort、各類矩形及合成畫布。
+- test_priority.log：299 assertions；新增昂貴維護 full 重設 safe streak、每槽安全 full
+  仍可退出、full-refresh 只計原時槽 due/sent、同步各區／失敗不同步、兩側重複探測節流。
+- targeted_adaptive_pty.log 與 integration_pty-final.log：commands_status.txt 均記 exit 0。
+  最終完整 suite 印出 32 次 active priority_keyframe_full 後正常安全退出；故障 keyframe
+  有 ACK timeout 分類且該 frame_id 無成功 CSV；center3 中央不變時有 1 次左側 stale probe，
+  獨立 wire/canvas 重建通過。三分區的短噪聲輪替與既有 multipart failure 等案例也全通過。
+
+新增 keyframe PTY 使用固定詳細影像、20 FPS、keyframe10ms、首 ACK 延遲80ms，正好覆蓋
+interval 小於來源 period 的實際 CLI 路徑（tests/integration_pty.py:481–589）。
+故障在第三 window 注入，確保先有正常 baseline、再有一次分區維護全幅；用失敗 frame_id
+檢查不存在成功列，比單純看「沒有任何 keyframe 列」更準確。
+center probe PTY 使用20 FPS、29 captures、moving 圖樣和首 ACK 延遲120ms，確認左區
+先因高估值略過、中央 unchanged、之後左區重新發送（同檔:592–675）。右區探測則由
+確定性 scheduler 單元測試覆蓋；不能宣稱左右都已有這項端到端 PTY 場景。
+
+可重算程度有一個限制：PTY suite 的 CSV、mock wire/canvas 都在 TemporaryDirectory
+中，正常結束後刪除；證據目錄保留的是 PASS／失敗摘要、命令、測試 source 與雜湊。
+本代理可審核測試實際檢查的條件、對上它的凍結 source 與 pass log，但不能在本次唯讀
+分析中重算已被刪除的逐列 CSV 或每次原始 wire。原生／硬體實驗應保留這些原始資料。
+最終 suite 尚不是三模式×raw/pair×full/diff 的完整長時間交叉矩陣；keyframe/probe 的
+新端到端案例集中 center3，其他模式靠共用路徑、scheduler tests 和短輪替案例支持。
+亦未驗證反覆多次真實負載升降、實際 payload 中途部分短寫後的 LCD 狀態或 idle MSN。
+
+最後來源封裝：dist/msu2_linux_v0_3_source_20261011.tar.gz
+檔案大小：68,233 bytes；SHA256：
+d592bf6400dae95a81e7cafa4c7b3838d3a7039f31470ad448a73f54c9d97ff2
+本代理直接讀取 tar，27 個一般檔案、無絕對或 .. 路徑／symlink／hardlink；每個 payload
+均與現行原始碼目錄逐 byte 相同，封裝內 MANIFEST.sha256 的 26 項全部相符。
+原始碼包不含這台 Mac 編出的執行檔；Linux 需在目標環境重新建置。
+
+最後 production binary SHA256：
+c45574c533ac82adaf68eb4c57fa45789081f4a5d53812a79800035fc5efbf78
+最後 main.cpp SHA256：
+a2215de9b0f21fde66dcb4bb3b1b0b3012da810a41f368a42b1a5cd7a082ef46
+最後 priority.cpp SHA256：
+331e3198dec11f17608d400ff7c282a4c234bb44f9d28caea8f2f9e0ccc0b07c
+最後完整 PTY log SHA256：
+0195464e436a9079bb74fd253693f18d43f35d49708dba6f6d4898bd4b3fa1b9
+
+修正前證據仍保留，沒有被改寫為新版結果。最終結論是「四模式候選版有 macOS 離線
+回歸證據，已修正本次審查找出的主要控制流程問題」，尚非「Linux 實機通過」。

@@ -1,0 +1,123 @@
+MSU2 MINI C++ v0.2 validation record
+Date: 2026-10-10 UTC
+Test owner: assigned delta_tests_61_xhigh agent (requested 6.1 Sol / xhigh)
+Production implementation/review owner: parent evaluation agent
+Project: msu2_cpp_v0_2
+
+Environment
+  Linux x86_64; kernel 6.18.44; GNU C++ 13.3.0; Python 3.12.14.
+  Windows cross-toolchain: LLVM-MinGW 20260908 UCRT, clang 23.1.1,
+  target x86_64-w64-windows-gnu, posix thread model.
+  CMake was not installed (cmake: command not found); CMake/CTest was not run.
+
+Executed release gate
+  Command: bash tests/run_tests.sh
+  Flags: -std=c++17 -Wall -Wextra -Wpedantic -pthread -O3 -DNDEBUG
+  Result: PASS; compile/link completed without compiler warnings.
+  Legacy core: 14,883 assertions.
+  Delta core at this gate: 3,041,516 assertions.
+  POSIX CLI/PTY suite: PASS.
+  The final delta test source additionally includes an over-32-runs sparse
+  fixture, checked by the final sanitized gate and Windows cross-compile below.
+
+Delta core evidence
+  Independent six-byte command decoder reconstructs each patch, validates
+  XY/size/start bytes, 64-register staging, page commits, partial-page raw
+  staging and FF padding, RGB565 ordering, decoded dimensions and metadata.
+  A retained 160x80 canvas verifies every complete update against full source
+  RGB565 and checks every pixel outside each active window remains unchanged.
+  First plan full; unchanged zero windows/bytes; forced unchanged full keyframe;
+  one changed high/low-byte pixel counts once; all corners; odd-width multirow
+  129-pixel page boundary; wrapped edge strips; vertically merged runs;
+  tile choice; compressed full cheaper than four tiny tail windows; dense noise
+  full fallback; sparse over-cap runs; at most 32 windows; actual wire byte sums
+  exclude the planner's 384-byte per-window selection penalty.
+  Planning never commits. Uncommitted/dropped and aborted plans do not replace
+  the previous successful reference. Explicit invalidate forces recovery full.
+  Malformed plan/commit sizes and invalid encoding are rejected, preserving the
+  prior reference. Deterministic 90-step raw and pair sequences include skipped
+  commits and dense resets, reconstructing the correct last-successful canvas.
+
+POSIX CLI/PTY evidence
+  An independent mock fragments greeting/echo/ACK bytes with unrelated noise.
+  Offline raw/pair and PTY send reconstruct an independent asymmetric PPM.
+  Full raw 160x80 wire size is exactly 39,018 bytes. Prefix/experimental echo ACK,
+  60/3840-byte chunking, probe, malformed input and transport failures pass.
+  Existing full stream backpressure check: 2 of 8 captured frames transmitted;
+  last source id retained, no unfinished/overlapping LCD windows.
+  Default and explicit full: detailed static fixture transmitted 5 of 5.
+  Diff with keyframe-ms=0: same detailed fixture transmitted once, processed all
+  5, and logged all 4 unchanged rows with zero bytes/write calls/ACK/payload time.
+  Appended CSV fields preserve the original first ten columns, then add
+  changed_pixels,transmitted_pixels,rectangles,update_kind,unchanged_total.
+  Static 140ms periodic keys over 12 captures produce full refreshes while
+  continuing unchanged skipping, with cumulative and console counts verified.
+  Slow ACK moving raw diff at 240 captures/sec: 18 of 220 source captures were
+  processed, 23 windows completed, including multipart wrap. Each CSV update's
+  summed wire bytes and transmitted pixels match the independent decoder.
+  Every complete source canvas, including source id219, matched independent
+  RGB565. Changed pixels compare with the preceding completed source despite
+  replaced waiting captures. No update or page interleaving occurred.
+  Original failed-window exit check passed in the release suite.
+  Final targeted strengthened check:
+    python3 loading integration_pty.py and calling multipart_failure_checks
+  PASS: first sibling of a wrap update completes, second sibling has no ACK;
+  CLI exits nonzero, sends no failed payload or later window, and omits the
+  entire incomplete update from CSV despite its first completed sibling.
+  bench/diff-bench/stream refuse existing CSVs and preserve sentinel contents.
+  Existing stream CSV fails before serial handshake. Failed initial handshake
+  leaves a new CSV path absent, proving CSV creation occurs after handshake.
+  Invalid update and keyframe options fail before serial open. keyframe-ms=0
+  and 60000 accepted in diff; >60000, negatives, keyframe on full/default fail.
+  diff-bench frames1 accepted; frames0,100001 and negative fail.
+  Negative silent greeting/corrupt exact wake echo/missing ACK/disconnect/
+  prefix-only ACK in echo mode all exit nonzero within bounded PTY deadlines.
+
+Executed final sanitizer core gate
+  ASAN_OPTIONS=detect_leaks=0 SANITIZE=1 CORE_ONLY=1
+  MSU2_TEST_BUILD=tests/.build-sanitized bash tests/run_tests.sh
+  Flags add: -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined
+  Result: PASS, 14,883 legacy + 3,078,677 final delta assertions.
+  No AddressSanitizer or UndefinedBehaviorSanitizer findings.
+  LeakSanitizer explicitly disabled for compatibility with the inherited test
+  environment; this record makes no memory-leak validation claim.
+
+Windows cross-compilation
+  Compiler below abbreviates toolchains/llvm-mingw-20260908-ucrt-ubuntu-22.04-x86_64/bin/
+  Executed:
+    x86_64-w64-mingw32-clang++ -std=c++17 -O3 -DNDEBUG -Wall -Wextra -Wpedantic -pthread -static -Iinclude src/main.cpp src/protocol.cpp src/delta.cpp src/image.cpp src/session.cpp src/transport.cpp src/capture.cpp -lgdi32 -luser32 -o bin/windows-x64/msu2.exe
+    x86_64-w64-mingw32-clang++ -std=c++17 -O3 -DNDEBUG -Wall -Wextra -Wpedantic -pthread -static -Iinclude tests/test_delta.cpp src/protocol.cpp src/delta.cpp -o tests/.build-windows/test_delta.exe
+    llvm-objdump -p bin/windows-x64/msu2.exe
+  Result: both compile/link PASS, no compiler warnings. Neither Windows binary
+  was executed. Imports are Windows/UCRT DLLs; no libc++, libgcc or winpthreads
+  runtime DLL dependency. Static linking does not remove operating-system DLLs.
+  Full import listing is in tests/windows_imports.txt.
+
+Offline diff benchmark
+  Executed bin/linux-x64/msu2 diff-bench --csv docs/diff_benchmark_linux.csv
+  Default frames300 confirmed in all 12 output rows: six patterns x raw/pair.
+  First source full, every capture processed, no device, pacing or periodic key.
+  Separate repeated 9-frame runs verified deterministic non-timing totals,
+  independent RGB565 changed-pixel counts and independent actual encoder page
+  byte counts. One-frame run confirms all sequences start with one full update.
+  300-frame command-byte savings against repeated encoded full frames:
+    solid/bars/checker raw and pair: 99.6667%
+    moving raw: 96.6702% (11,705,400 full bytes -> 389,766 diff bytes)
+    moving pair: 97.8300% (9,941,472 full bytes -> 215,730 diff bytes)
+    gradient/noise raw and pair: 0.0000%; planner chooses full updates.
+  Reported preparation times are environment-specific CPU measurements;
+  wire savings are not serial throughput, display completion or display FPS.
+
+Delivered binary SHA256
+  bin/linux-x64/msu2
+    2764cd3a501900f6b27c37c0d2e64faf73da9d3d9534331901562d0cd60ac12d
+  bin/windows-x64/msu2.exe
+    54e0ddbdab37de1fe0ac424cf8e9319a7dbb3bc7acaba0d5d16c992cd7dd802d
+
+Limits
+  No original vendor executable was run. No hardware/firmware write occurred.
+  No physical MSU2, Windows runtime/GDI capture, or macOS runtime was exercised.
+  PTY ACKs model command acknowledgement, not LCD display completion. Retained
+  LCD pixels and real-device window latency still require physical validation.
+  No production bugs were found in these checks. The parent evaluates source
+  and handles any fixes/publication; this agent changed tests and test artifacts.

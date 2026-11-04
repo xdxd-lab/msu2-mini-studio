@@ -1,0 +1,142 @@
+MSU2 Mini 手動顯示測試工具：最終獨立分析
+2026-10-11｜GPT-6 Astra／ultra｜macOS 工作區
+
+最終版可作為讓使用者自行送圖、調整參數及保存證據的候選工具交付。
+審查曾發現 Ctrl+C 可能強制殺死正在傳送的子程序、並過早釋放 guard 的問題；
+主代理已修正，最新版程式與新增的離線子程序證據足以解除這項交付阻擋。
+目前沒有另見阻擋既定用途的缺陷。此結論是工具的離線審查結論，不代表
+Linux 原生、序列傳輸、重連、實體畫面或任何 FPS 的硬體驗收通過。
+
+本分析只讀取程式、文件、既有證據及壓縮檔，另以唯讀方式核對 SHA-256，
+並檢視 contact sheet。沒有開啟序列埠、執行 send／stream、重新測試硬體，
+也沒有修改工具、C++ 原始碼或套件；唯一新增檔案是本報告。
+
+採用的最終證據是：
+manual_test_kit/results/offline_20261011T073105+0800/
+其中 CHECKS.txt、launcher_stop_cases.json、candidate_binary_offline.json、
+launcher/*、compare_fixture/* 與 SHA256SUMS.txt 可互相追查。
+較早 072513 的 mock 結果保留為歷程，不用來代替最終子程序生命週期驗證。
+
+離線證據支持以下判斷：
+
+1. 11 張 P6 PPM 都是 160×80、38,400-byte RGB payload；同名 PNG 逐像素相同。
+   稽核包含 26 個座標／顏色斷言與重新生成的可再現性。本分析另核對影像
+   SHA256SUMS 的 23 條、最終證據 SHA256SUMS 的 67 條，全部相符。
+2. --list、影像與 moving 的 --dry-run，以及 8 個非法參數／來源案例通過。
+   --dry-run 在載入 guard 前返回，不會因預覽命令而開啟序列埠。
+3. 真正的離線假子程序驗證正常退出、exit 7、父程序 Ctrl+C、測試專用短逾時、
+   注入等待例外。中斷／逾時／例外都記錄 child_sigint → child_exit → guard_exit；
+   正常與非零退出也都是 child_exit 在 guard_exit 之前。這些案例的 guard 是
+   可記錄事件的 mock，並非實體裝置的 lsof 檢查。
+4. owner-check timeout 的 mock 與真正 fcntl 鎖衝突，都成為 blocked／launcher
+   exit 2，沒有 child_started，也沒有傳輸 stdout／stderr。鎖衝突使用離線
+   假裝置名稱，在任何裝置檢查之前就被擋下。
+5. 現有 macOS arm64 候選執行檔，對色條、格線各完成 preview 與 encode，
+   共 4 個離線命令 exit 0；preview 與來源像素相同。沒有把 encode 檔案的
+   產生誤稱為已送到 LCD。
+
+來源與參數的處理符合現有 C++ 介面。預製影像名解析為 --input 絕對路徑；
+自訂來源接受既存 .ppm，內容由 C++ P6／P3 讀取器處理；PNG 僅作預覽。
+內建 moving、noise、gradient 預設 stream，其他來源預設 send，也能明確指定
+--action。單張不能使用非 off 的 priority-mode 或非零 keyframe；FPS、frames、
+chunk、timeout、keyframe、orientation、label 都有範圍／格式檢查，命令以參數
+陣列啟動，路徑空白不會被拆成 shell 命令。send 不使用 FPS、frames 或 update；
+比較這些參數時必須選 stream。dry-run 檢查來源選擇與參數組合，並不證明
+二進位檔可執行、PPM 內容可解析或裝置可連線。
+
+靜態 PPM 配合 diff、keyframe=0，首張後可能沒有任何 payload，不能用來評估
+連續傳輸吞吐或移動殘影。moving 與 noise 的內容依來源 frame ID 決定，可做
+參數對照，但掉幀會改變實際處理的來源 ID 序列。--priority-mode 是自適應策略
+選擇，並非強制每張立即分區；README 已要求核對 active_layout／mode_event。
+03_bands4、04_center3、05_halves2 的檔名只是標靶名稱，不會自行切換演算法。
+
+目前工作區直接載入 scripts/macos/serial_guard.py，沿用既有共享鎖目錄。
+cu／tty 名稱會對應到相同鎖鍵，取得鎖後以 lsof 檢查兩個存在的別名；發現
+owner 或不能確認空閒時不啟動子程序。獨立抽出的 kit 以 fcntl＋lsof 做同類
+防護，其鎖目錄固定於該 kit 的 results/.device-locks。這是合作式鎖：不同
+解壓副本或不用同一 guard 的程式不共用鎖，因此仍應依 README 一次只跑一例，
+並等既有測試自然完成。不能把本輪的 mock／離線鎖衝突測試當成所有 OS、
+使用者權限、別名或 USB 拔插情境的實體互斥驗證。
+
+修正版 manual_test.py 保留 Popen 物件，在 guard 範圍內 wait；Ctrl+C 與
+launcher timeout 先送 SIGINT，給既有 C++ 在途更新收尾的機會。超過寬限後
+才 TERM，再逾時才 KILL；每一條終止分支都 wait，再退出 guard。一般等待
+例外也有 finally 收尾。這保留原來的 C++ 顯示更新演算法，避免 wrapper
+自行過早終止傳輸。子程序即使收到 SIGINT 後 exit 0，該輪仍是 interrupted
+或 launcher_timeout，而不是 passed；metadata 另存真實 child exit_code 與
+termination_method。新增離線證據實測的是 SIGINT 正常收尾；TERM／KILL 升級
+分支只有程式檢視，未以此次 fixture 實測，更沒有測試卡住的實體驅動程式。
+
+保存與分類足以支援首輪人工比較。每次建立唯一資料夾，保留命令、來源與
+執行檔 SHA-256、時間／平台、status、exit code、日誌、可用 CSV 與目視觀察檔。
+blocked 在 child 啟動前就有 metadata 與原因；沒有日誌／CSV 是合理情況。
+owner-check timeout 已與 child timeout 分開，guard 初始化錯誤也有 launcher_error。
+每輪 SHA256SUMS 只涵蓋當輪實際存在的 command／stdout／stderr／CSV，並非
+所有檔案；metadata 與可填寫的觀察檔不在其中。自訂影像只保存其路徑與 hash，
+沒有複製原圖，使用者應另外保留原始 PPM 才能日後重現。
+
+compare_runs.py 的摘要語意保守且與 C++ 相容：
+
+- completed_rows 計算完成處理的 CSV 列，包含 unchanged／skipped，不能解讀成
+  成功更新 LCD 的幀數。沒有 CSV 是「-」；已有 CSV 而無資料列才是 0。
+- replaced_at_last_row 是最後完成列的 dropped_total，只指等待來源被取代；
+  失敗期間後續新增的 replacement 不一定出現在此數字，應再看失敗日誌。
+- side_skips 計算 region_outcome=skipped，符合目前 center3 的側區主動略過；
+  不與 dropped_total、ACK timeout 或 region_missed_queue 混為一談。
+- 明確 window_ack_timeout 優先辨識；其他 response timeout 保守標示
+  response_timeout_unspecified，不能逕自判定是握手或顯示視窗 ACK。
+  none 僅代表未命中這兩種文字，不代表沒有其他 deadline／握手／傳輸失敗。
+
+影像設計適合診斷用途。色條確認通道與全幅，非對稱角標／格線確認方向與
+座標；四帶、中央三區、左右半幅及跨界標靶對應既有區域邊界；單像素棋盤
+檢查細節；漸層觀察 RGB565 量化；固定雜訊提供高資料量；全黑／全白便於
+觀察殘影。contact sheet 與文件列示順序相符。漸層藍色通道的斜向回繞是
+生成器預期內容，README 已明示，不應當作 LCD 錯位。PPM 非原生尺寸時的
+等比縮放／置中裁切說明符合 image.cpp；精確邊界比較應維持 160×80。
+
+文件沒有把主機正常退出或視窗 ACK 誇大為 LCD 完成，也沒有聲稱 60 FPS
+已通過。保留 chunk=60、ACK prefix、timeout=2000ms 的初始條件合理；3840
+第二視窗失敗的敘述有既有 SESSION_STATE／ACK_INVESTIGATION 文件支持。
+最終參數表已釐清 chunk 是每次 payload 寫入的 byte 上限，timeout 適用握手
+與 I/O 等待，避免將 chunk 誤當成顯示視窗大小。
+這不代表 chunk=60 永不失敗，或重連問題已修復。README 的 45、46、…、60
+逐步觀察以及出現異常就保存結果，符合尋找觀測不穩定起點的範圍。
+
+建議使用者首輪依下列次序自行操作；本分析沒有替使用者執行：
+
+1. 確認其他測試自然結束，重新列舉實際埠，先對選定命令做 dry-run。
+2. send 色條、格線與跨界標靶，各自觀察顏色、方向、缺塊；再視需要送黑／白，
+   分別填寫當輪 OBSERVATION_zh-TW.txt，包括前次測試與重新插拔的間隔。
+3. 使用 moving／45 FPS／450 frames／pair／diff／keyframe=0／chunk=60／
+   priority=off 做動態基準。再保持其餘參數相同，逐輪比較 bands4、center3、
+   halves2，同時查 CSV 是否真的進入分區；不要只根據命令名推斷策略已啟動。
+4. 選定固定策略後按 45、46、47、… 順序提高 FPS；一次改一項，保留每輪
+   原始結果與目視觀察。固定 450 frames 是比較相同來源長度，各 FPS 的
+   經過時間不同；若改採固定秒數，須另行標明，不能混用兩種條件。
+5. 出現異常先判別 blocked、初始握手、在途 ACK、payload／deadline、來源
+   replacement 或主動 skip；未建立串流的握手失敗不能算作該 FPS 的運行故障。
+   確認狀態後才考慮補相鄰 FPS 對照，不以必須到 60 作為成功條件。
+6. raw、noise、非零 keyframe 或大 chunk 分開作下一組對照，避免同時改變
+   負載與 ACK 條件。Linux 原生與 Windows／Rust 不併入本輪驗收。
+
+交付與版本核對：
+
+dist/msu2_manual_test_kit_20261011.tar.gz
+257,759 bytes；30 個檔案；套件 MANIFEST.sha256 為 29 條。
+本分析以不解壓落地的方式逐成員比對目前來源，30 檔全部一致，29 條 manifest
+雜湊也全部相符。
+套件 SHA-256：
+1e023f4ff9074a868a6f791309635729abfdc54faaa8bc192dedca8c5168cb8b
+
+候選 C++ 執行檔 SHA-256：
+c45574c533ac82adaf68eb4c57fa45789081f4a5d53812a79800035fc5efbf78
+manual_test.py SHA-256：
+07227f1be67de62bed687950b8ac0154a6b08cf9ba892d87c3759e3a65349741
+compare_runs.py SHA-256：
+e619835cc69ae0dcec8737f6bcf897e030587612e217ba599a436df2ba6757ff
+tests/offline_audit.py SHA-256：
+00d8b98e6e19d5477b2b05367f6bb289637992d89ee5e89b51c76d3eeea16cfd
+
+壓縮檔包含工具、影像與操作文件，不包含 C++ 候選來源或執行檔。
+目前工作區可使用既有 msu2_linux_v0_3/build/msu2；另放位置時須指定 --binary。
+Linux 必須另行原生建置與驗證；本輪沒有任何新硬體結果或 LCD FPS 結論。

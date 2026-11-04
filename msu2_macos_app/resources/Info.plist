@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleDevelopmentRegion</key><string>zh_TW</string>
+<key>CFBundleDisplayName</key><string>MSU2 Mini Studio</string>
+<key>CFBundleExecutable</key><string>MSU2MiniStudio</string>
+<key>CFBundleIdentifier</key><string>local.msu2mini.studio</string>
+<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+<key>CFBundleName</key><string>MSU2 Mini Studio</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>0.2.0</string>
+<key>CFBundleVersion</key><string>2</string>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSScreenCaptureUsageDescription</key><string>在您選擇桌面投射時，擷取主顯示器畫面並傳送到 MSU2 Mini 螢幕。</string>
+<key>NSPrincipalClass</key><string>NSApplication</string>
+</dict></plist>

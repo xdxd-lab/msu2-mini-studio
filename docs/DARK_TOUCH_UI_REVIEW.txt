@@ -1,0 +1,114 @@
+MSU2 Mini Studio 深色觸控 UI 檢查
+日期：2026-10-12
+分析：GPT-6.1 Sol xhigh 子代理；只讀程式、離線模擬與畫面證據，不存取硬體。
+最終狀態：完整離線套件與同一程序 18 個 GUI 情境通過。版面、操作啟用規則、
+來源 RGB565、固定幾何的畫面區域對比均通過；沒有本次離線檢查的未決缺陷。
+
+需求依據
+output/design/msu2-mini-studio-dark-touch-handoff-zh-TW.txt
+output/design/msu2-mini-studio-dark-touch-v1.png
+AGENTS.md
+
+核心隔離與保留
+與 build/dark-ui-qa/before_source_hashes.json 比對，platform.mm、flash.cpp，以及
+msu2_linux_v0_3/src/{capture,image,transport,delta,session,protocol,priority,main}.cpp
+SHA256 全部相同。controller.cpp 新增唯讀計數；傳送、來源節奏、最新影格佇列、
+差分、優先區域與協定仍沿用原有流程。
+capture_dropped 為來源節奏經過的擷取槽；queue_dropped 為等待影格被新影格取代；
+既有 dropped 為消費端觀察到的影格 ID 缺口。三者不應相加或稱為串列錯誤。
+
+外框靜態檢查
+preview.cpp 對 RGB565 四邊最外 2 行／列逐像素計算 sRGB 相對亮度與最小對比；
+3:1 為選線門檻，雙色為混合邊緣的後備。BorderStability 以 250ms 穩定期避免
+切換時閃爍，等待期間呈雙色。分析函式只接受 const bytes，未回寫來源。
+ui_views.mm 以整數倍率、最近鄰與 2:1 矩形呈現預覽；線畫在影像矩形外。
+UI 於主執行緒快照後分析，沒有把外框計算接入傳送執行緒。
+
+已回報主代理的具體缺陷（前四項修正後已覆核程式）
+1. scaleChanged 重建 Flash 頁後，flashPath 與 confirmedFlashImage 保留，但
+   flashPathLabel 重新顯示「尚未選擇燒錄圖片」，選取素材與名稱不一致。
+2. scaleChanged 重建 historyText，但 priorLog 保留；下一次 tick 發現相同
+   lines 而略過更新，因此新工作紀錄視圖空白。
+3. writeSnapshot 在紀錄 borderDescription 前切換 autoContrast，重設穩定器；
+   黑／白的圖片雖然可正確呈單線，JSON 卻會變成雙色框。需先記錄框線描述。
+4. 藍色主要／選取按鈕按下時底色改成 #354E6C，但文字仍為 #081A2E，對比
+   約 2.052:1；改用 #F2F5FA 可達約 7.819:1。一般主要按鈕為 6.375:1，
+   停用按鈕為 6.429:1。以上為工程計算，不宣稱完成無障礙認證。
+主代理已修正以上四項；black/white.json 分別顯示淺色／深色外框，證實快照
+不再因切換外框的不可變資料檢查而誤報雙色。
+
+初次 GUI 矩陣發現事項（均已修正與覆核）
+5. small150.png（800×700、150%）中分頁、串流底列切為直排後，子元件未填滿
+   寬度，按鈕背景只有約 106–134pt，文字／圖示溢出並互相重疊。應在直排
+   時讓分頁與底列兩個按鈕組填滿寬度，回橫排時解除該限制。
+6. history125.png 的「開啟紀錄資料夾」文字與圖示也超出約 153pt 的背景。
+   MSU2TouchButton 自繪的字體與 symbol 尺寸未反映在原生 intrinsicContentSize；
+   可用同一字體量測字寬、加入圖示與間隔及內距決定自然寬度。
+7. FPS／起始頁數字在 60/75/90pt 欄位內靠上，與置中的加減按鈕不一致。
+   為視覺缺陷，可用 NSTextFieldCell 的 drawing/editing rect 垂直置中。
+8. updatePreview 遇到桌面未授權／圖片來源空白而清除畫面時，localPreview
+   還保留前一來源；scaleChanged 會不加條件還原舊資料，並重設提示文字。
+   應在清除目前畫面時同步清除 localPreview，或忠實保留畫面與提示狀態。
+   sourceReady 仍會停用傳送，故此問題屬本機顯示與來源識別。
+上述均已回報主代理，未由分析代理更動 app.mm 或 ui_views.mm。
+後續縮放改成就地調整字體、手動約束常數、間距與圓角，不再重建視圖；因此
+選取的 Flash 圖片、工作紀錄與來源視圖參照自然保留。未授權／空圖片／解碼
+失敗的預覽會同步清除 localPreview。新數字 cell 保留直接輸入能力並垂直置中。
+
+新增離線驗證
+tests/test_controller_edges.cpp telemetry：100ms 慢來源搭配立即 fake transport，
+確認來源槽遺失有計數、等待佇列為零；另一情境以 10FPS 快來源與閘控傳送，
+確認只替換等待影格，不把此情況計為來源遺失或串列錯誤。檢查最終 events.log
+保留兩個計數；傳送使用 fake transport/source 與 fake lease，不列舉串列埠。
+scripts/test.sh 加入純函式 test_preview 執行，覆蓋黑、白、上下／左右混合、
+彩條、棋盤、雜訊、邊緣異色、250ms 遲滯與來源資料不變。
+
+離線結果
+命令：bash msu2_macos_app/scripts/test.sh；exit status 0。
+完整 stdout/stderr 與 SHA256：msu2_macos_app/build/dark-ui-qa/offline_result.json。
+slow source：capture_slots_missed=8，waiting_frames_replaced=0。
+gated send：capture_slots_missed=0，waiting_frames_replaced=5，observed_gaps=5。
+既有 Flash、控制器生命週期、暫停／重連／閒置、握手／ACK 分類及 platform 圖片
+方向、透明合成、裁切、PPM 測試均通過。Core 14,883、delta 3,078,677、priority
+299 個斷言通過。應用／CLI／全部輸入 object SHA256 前後相同。
+
+首批 GUI 證據
+stream100/125/150.json 主操作高度分別 60/75/90pt；全部 footerVisible=true。
+black/white、horizontal/vertical、edge 與彩條預覽比例為 640×320，150% 大視窗
+為 800×400；黑色淺線、白色深線、混合／彩條／細邊緣雙線，各邊清楚且矩形
+內容完整。所有 payloadUnchanged=true。Flash／history 沿用相同深色尺寸。
+靜態快照的固定底列存在並不代表窄視窗字體未溢出，已依實際圖像追加寬度覆核。
+
+修正後同一程序 GUI 矩陣覆核（final_*.png/json）
+2026-10-12T13:39Z：覆核最終 18 個 PNG 與 JSON。800×700 的 125%／150% 分頁均
+填滿寬度，底列以兩組排列，四個按鈕文字完整且彼此不重疊。工作紀錄資料夾
+按鈕自然寬度已含文字／圖示；FPS／起始頁數字居中且 fpsEditable=true。
+主操作高度 60／75／90pt、160×80 的 2:1 內容比例、footerVisible、來源資料
+不變、以及各操作啟用規則全部通過。黑色淺框、白色深框、上下／左右混合、
+彩條與高頻邊緣雙色框，內容輪廓清楚。固定操作列在設定捲動時保持可見。
+
+狀態       開始／單張     暫停或繼續     停止      連線
+未連線     停用          停用           停用      可用
+連線中     停用          停用           停用      停用
+待機       可用          停用           停用      停用
+啟動中     停用          停用           停用      停用
+串流中     停用          暫停可用       可用      停用
+已暫停     停用          繼續可用       可用      停用
+停止中     停用          停用           停用      停用
+錯誤       停用          停用           停用      可用
+
+最終畫面區域比對：全部 18 個 payloadUnchanged=true；17 個有預覽的情境
+renderedImageUnchanged=true、geometryUnchanged=true、differentPixels=0。
+history 無影像，因此 renderedImageTested=false、renderedImageUnchanged=null。
+125% 投射與 Flash 均對完整 640×320 區域比對，差異 0；沒有略過外緣像素。
+初次比對使用不同的快取目標幾何而出現差異，最終以固定尺寸 bitmap 與相同
+bounds/imageRect 進行前後捕捉，對比開／關均未更動畫面區域或來源資料。
+數字欄背景已整塊填色；starting／stopping 的底列分別顯示「正在啟動串流…」與
+「正在停止串流，等待傳送完成…」，與停用按鈕一致。
+主代理最終 GUI exec session 46310：exit status 0，18 次 UI_CASE_OK，
+UI_MATRIX_OK。控制器來源 SHA256 仍為
+198bfe3ee52dfb878c9cf0fca43297723273e8cf127820779f8eca1e4cf9f986，與首輪
+離線分析版本相同；其餘平台／Flash／核心來源與改版前 SHA256 相同。
+工程證據摘要、每個 PNG／JSON SHA256：build/dark-ui-qa/ui_review_result.json。
+
+實體硬體、LCD 更新率、觸控螢幕與遠端桌面互動未在本次離線檢查量測。

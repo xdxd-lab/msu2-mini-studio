@@ -1,0 +1,211 @@
+MSU2 MINI 外部資料補充研究
+研究日期：2026-10-10（Asia/Taipei）
+
+目的與證據範圍
+這是配合目前 C++ v0.2 / macOS 主線的資料研究，不是新一輪實機驗收。
+本次只讀主線程式與結果，新增研究文件及作者公開 PDF；未開啟序列埠、
+未燒錄 Flash / MCU、未修改主線演算法，也未把外部專案程式碼併入產品。
+使用者提供的 Android GitHub 連結重複，合併計為一個來源，共五個不同連結。
+
+閱讀狀態
+1. Blackwood416/MSU_Mini_UsbScreen：README 與實際 C# 原始碼。
+2. Carteahere/MSU2-USB-Screen-Android：README 與實際 Kotlin 原始碼。
+   原始碼由根代理直接讀取raw.githubusercontent.com的main檔案；
+   本輪未核驗最新commit SHA，不聲稱與原協定文件引用的固定版本相同。
+3. OSHWHub MSU2_LITE：取得作者專案頁的搜尋索引內容；直接請求回傳 HTTP 418。
+   硬體附件另從作者 Gitee 公開文件庫取得完整 PDF，並檢視相關頁面圖像。
+4. Bilibili BV1bvh9eqENB：取得作者、日期、標題及功能簡介；未取得影片影音或字幕。
+5. 抖音 7461565073647996169：頁面沒有可讀正文，補查也未取得可靠內容。
+   因此本研究沒有聲稱看完兩段影片，也沒有從它們推定 FPS 或像素規格。
+
+一、型號與硬體：MINI 與 LITE 必須分開
+
+項目                 MSU2 MINI                    MSU2 LITE / 朔月派開發板
+面板                 0.96 吋，160×80              1.47 吋，320×172
+LCD 控制器           ST7735S                     GC9307
+像素數               12,800                      55,040（MINI 的 4.3 倍）
+16-bit 全幅像素量    25,600 bytes                110,080 bytes
+MCU                  CH32X033F8P6                CH32X033F8P6（朔月派指南所載）
+外部素材 Flash       P25D80，8 Mbit / 1 MiB      W25Q64，64 Mbit / 8 MiB（同上）
+資料適用範圍         系列指南 v1.10 的 MINI       LITE 頁面＋朔月派指南 v1.00
+
+MINI 型號、Flash、LCD 與接線依 [H1] 印刷頁 1、5、13、14（PDF頁 3、7、15、16）。
+LITE 面板依 [L1]，開發板主控與 Flash 依 [H2] 印刷頁 1、2、5（PDF頁 3、4、7）。
+1 MiB = 1,048,576 bytes；8 MiB = 8,388,608 bytes，原指南分別寫1024KB與8MB。
+這些是文件所描述的設計，尚非使用者手上每個硬體版本的晶片實物辨識；
+LITE實物是否每版均沿用朔月派相同BOM，也未由本輪確認。
+USB 列舉名稱「CH32x035」不能单獨推翻原理圖標示的 CH32X033F8P6。
+
+[H2] 列出 CH32X033F8P6：RV32IMAC / 48 MHz、62 KB 程式儲存、20 KB RAM、
+USB 2.0 Full Speed 裝置介面 12 Mbps；WCH 官方系列資料 [W1] 可交叉參照。
+這是 MCU 能力，不能直接當成目前 MSU2 韌體實際時脈、USB 有效吞吐或 SPI 工作速率。
+MINI 原理圖可見 USB D+/D- 直接連 MCU，LCD 與外部 Flash 使用 SPI 訊號；
+不能只因主機設定 19200 baud，就按實體 UART 的 19200 bit/s 估算投屏上限。
+CDC line coding 是否影響這版韌體速度，仍要由韌體或實測確認。
+
+推導：MINI 一張 RGB565 需 25,600 bytes，大於 MCU 全部 20 KB RAM。
+因此不宜假設 MCU RAM 裡有完整未壓縮畫面或雙緩衝；頁式串流符合資源限制。
+這不是對未取得之韌體記憶體布局的反組譯結論，LCD 自己的顯示記憶體另論。
+
+二、像素格式與資料量
+
+MINI 為 160×80、RGB565，每像素 2 bytes，高 byte 在前，逐行排列。
+RGB565 的 R/G/B 為 5/6/5 bits；格式可表達 65,536 個代碼，
+不代表已量測面板色準、視角、亮度、gamma、實際色深或可見刷新率。
+主機 RGB888 轉 RGB565 的量化、影像縮放與 LCD 面板輸出是不同層次。
+
+目前 C++ 協定與社群實作相互對照的基本命令：
+  開窗：02 00 xH xL yH yL；02 01 wH wL hH hL；02 03 07 00 00 00。
+  暫存寫入：04 index D0 D1 D2 D3，64 組共 256 bytes，等於 128 pixels。
+  預填：02 04 D0 D1 D2 D3，將整页設成重複的四-byte 組。
+  提交：02 03 08 lenH lenL 00；完整頁 length=256。
+  完整畫面：100 頁；矩形尾頁須按有效長度提交。
+
+pair 是在單頁選常見的兩像素組預填，再覆寫例外；不是跨幀差異。
+跨幀只更新變動矩形，則是目前 C++ DeltaPlanner 另外做的一層優化。
+不要把主色預填誤稱成 8-bit 色盤，也不要套用 LITE 的 09 RLE 語意。
+
+依目前 C++ 編碼的推導（不是實測 FPS）：
+  raw：每頁 64×6+6=390B，全幅含18B開窗共39,018B。
+  pair：每頁12～390B，全幅含開窗共1,218～39,018B。
+  raw / 30 FPS：1,170,540 bytes/s = 9.36432 Mbit/s 命令資料。
+  raw / 60 FPS：2,341,080 bytes/s = 18.72864 Mbit/s 命令資料。
+  最易壓縮的全幅 / 60 FPS：約73,080 bytes/s。
+USB FS 是12 Mbit/s線速，還有USB封包/排程等開銷。因此這套raw封包的任意全幅
+60 FPS不可能在此介面達成；即使忽略所有開銷，raw理論天花板亦僅約38.44 FPS。
+30 FPS並非因此就能保證。局部更新、重複像素或較少命令可以有完全不同的表現。
+「60 FPS」必須寫清楚是擷取目標、主機送出率或LCD可見更新率，以及測試素材。
+
+三、上位機原始碼中最有用的差異
+
+Android [G2]：Msu2Serial.kt 的 SCREEN_CHUNK_SIZE=60，每次write為10個六byte命令；
+每塊寫入timeout=5000ms，塊間沒有顯式sleep。完成sendScreen後執行drainAll，
+每次read timeout=30ms、連續3次無資料才停止、總期限300ms。
+因此它同時改變主機write邊界與送後等待，不能把60B拆塊單獨視為已證實的修復。
+在沒有回覆且每次read等滿timeout的條件下，drain本身約90ms；這是程式推估，
+不能據此宣稱其實測FPS。ack()只看是否有任意資料，requireResponse預設false，
+也未嚴格驗證是哪個命令的回覆；寬鬆ACK可能掩蓋問題，不應直接照搬作通過條件。
+握手則會先等MSN兩位數字廣播，再比對完整MSNCN，開埠設DTR=true、RTS=false。
+
+C# [G1]：RenderUtil.DrawCall以256B像素頁為單位，組成390B raw命令再write；
+這條路徑沒有Android的頁內pair壓縮，也沒有每頁sleep或等待提交完成。
+開窗ACK只檢查前兩byte，2000ms期限、1ms輪詢；失敗最多重試一次並送wake-up。
+SerialPortUtil.InitConnection直接送MSNCN，等待250ms後讀走資料，未嚴格比對banner/echo。
+這說明「看似能連線」與「完整驗證握手」在不同專案裡標準不同。
+RenderUtil主畫面流程沒有追加02 03 09，Android encodeScreenData也未追加該尾命令。
+
+與主線最直接的A/B變因：現有C++整個區域payload連續write，
+對照C#每390B或Android每60B write；再獨立控制送後RX收取／等待。
+write呼叫邊界不一定等於USB封包邊界，若有改善仍需trace確認真正原因。
+目前沒有證據指出只改baud、加09尾命令、換語言或改USB孔能解決首張後timeout。
+
+固定素材頁址（Android程式常數，並非韌體自動探索）：
+  GIF 36張×每張100頁：起始0、100、…、3500，合計900 KiB；
+  ASC64=3651，CLK_BG=3826，PH1=3926，N24X33=4026，MP1=4038。
+這些數字不能泛化為LITE或任意MINI韌體的Flash布局。
+
+上位機建置設定（本輪靜態讀取，未建置這兩個第三方專案）：
+  C#：net10.0；Avalonia 11.3.8；ImageSharp 3.1.12；System.IO.Ports 10.0.1。
+    README公布Windows/Linux用法，不能據此聲稱已在macOS實機驗證。
+  Android：Kotlin 2.0.20、AGP 8.5.2、Gradle wrapper 8.14.5；
+    compile/target SDK34、min SDK26、usb-serial-for-android 3.8.0（JitPack）。
+    README建議Gradle JDK17/21；Java/Kotlin產物target=11是另一個設定，勿混淆。
+    版本欄位versionName=2.2.1、versionCode=10，不是MSU2裝置韌體版本。
+
+四、MCU 韌體、素材 Flash 與開發環境
+
+「燒錄」至少有兩種不同路徑：
+  A. MCU 程式：控制USB協定與LCD等外設；作者指南使用 WCHISPTool 燒入主控。
+  B. 外部 Flash：存圖片、動畫、時鐘背景與字庫；由上位機頁指令讀寫。
+上位機命名為 firmware / .bin，不足以證明它能更新 MCU 程式。
+[L1] 也分別列 MSU2_LITE_Firmware_V1.0.hex 與 MSU2_LITE_Flash_V1.0.bin。
+未取得 MSU2 主控韌體可重新建置的完整原始專案，不能宣稱已具備韌體重建環境。
+
+[H2] 的正式開發路徑為 MounRiver Studio + CH32X035EVT.ZIP，
+以 GPIO_Toggle.wvproj / User/main.c 示範，編譯產生 obj 下的 .hex；
+WCHISPTool 另負責 USB ISP 下載。WCH 官方範例倉庫見 [W1]。
+這是 MCU 開發路徑，與本工作區 Mac 上的 C++17 / Clang 主機程式建置不同。
+本輪沒有安裝上述 IDE、SDK、驱動，也沒有進入 ISP 或更動裝置資料。
+
+五、效能主張的證據強度
+
+[L1] 作者專案頁稱 LITE 投屏通常 5～15 FPS，但未提供可重現的素材、平台、
+取樣方法或LCD光學量測。只能作作者對LITE使用效果的描述，不能套到MINI。
+[V1] Bilibili 為墨砺工作室於2024-07-08發布的MSU2功能介紹；
+可讀簡介只支持監控、時鐘、相簿及投屏等用途，不能作刷新率測試證據。
+[V2] 抖音影片內容未能驗證，不採用任何由它延伸的數字。
+
+MINI 指南的待機動畫為36張、每100ms切换、總長3.6秒；
+LITE 頁面的6.4秒離線動畫是另一型號資料。離線動畫節奏也不是USB投屏FPS。
+圖片/動畫的Flash寫入時間同樣不等於LCD串流效能。
+
+六、與目前主線的關聯及建議驗證
+
+這是截至2026-10-10 22:15:34的已完成紀錄快照，主線可在此後繼續更新：
+  results/macos/handshake_trace_20261010.log：已收到完整MSNCN echo，banner為01。
+  results/macos/20261010T221427_288112+0800_068dc79c/hardware：
+    bars/full/pair首張33,618B，主機latency約48.0591ms，之後response timeout。
+  results/macos/20261010T221531_419498+0800_5d15f9c5/hardware：
+    no_flush診斷亦有首張，約48.5226ms，之後timeout；moving未跑。
+這些案例都是failed；人工顯示觀察尚未完成，不能把首幀寫出當作連續FPS驗收。
+早期準備文件只寫「握手失敗」已不足以描述這個快照。研究未覆寫主線狀態文件。
+
+優先驗證清單：
+1. 對照社群多幀流程，紀錄第二次開窗之前的所有RX，區分開窗ACK、
+   頁提交殘留回覆、裝置重新廣播與真正逾時；避免只以02 03 prefix判斷交易對應。
+2. 單獨改變傳輸分塊大小／間隔及送出後等待策略，保持像素與命令內容一致。
+   只有實測證實有效後，才把診斷設定變成正式預設。
+3. 補四角、1pixel、奇數寬、128/129pixel跨頁、最後列／行與矩形外保留測試。
+   純RGB、單像素棋盤、灰階／漸層分別驗色序、方向、像素映射及縮放量化。
+4. 連續傳輸穩定後，比較full/raw、full/pair、diff/raw、diff/pair；
+   分開統計首張、後續全幅、局部、unchanged與waiting replacements。
+5. 要主張LCD可見FPS或延遲，另用已知取樣率的影片和畫面時間碼驗證。
+6. 先建立型號／實物晶片／banner／素材Flash布局對照，再評估不同韌體功能。
+   不以CH32x035裝置名稱、banner數字或別型號封包推定相容性。
+
+本工作區已有的證據：moving/pair固定300張離線編碼從9,941,472B降至215,730B，
+減少97.83%；noise/gradient則無此節省。這支持針對畫面內容做差異更新，
+但仍不能證明macOS連續串流或LCD畫面正確。
+
+來源索引
+[G1] https://github.com/Blackwood416/MSU_Mini_UsbScreen
+  本輪讀取的程式檔（以下行號為GitHub檔案的一起算行號）：
+  https://github.com/Blackwood416/MSU_Mini_UsbScreen/blob/main/UsbScreen.Core/Utils/RenderUtil.cs#L7-L90
+    raw分頁、開窗ACK、重試，整個DrawCall無09尾命令。
+  https://github.com/Blackwood416/MSU_Mini_UsbScreen/blob/main/UsbScreen.Core/Utils/SerialPortUtil.cs#L68-L96
+    握手後250ms與寬鬆讀取；不等於完整echo驗證。
+  https://github.com/Blackwood416/MSU_Mini_UsbScreen/blob/main/UsbScreen.Core/UsbScreen.Core.csproj
+  https://github.com/Blackwood416/MSU_Mini_UsbScreen/blob/main/UsbScreen.GUI/UsbScreen.GUI.csproj
+    net10.0、Avalonia、ImageSharp、System.IO.Ports版本。
+[G2] https://github.com/Carteahere/MSU2-USB-Screen-Android
+  https://github.com/Carteahere/MSU2-USB-Screen-Android/blob/main/app/src/main/java/com/msu2/android/usb/Msu2Protocol.kt#L132-L198
+    RGB565高byte優先、逐行、頁預填/例外、FF尾頁與實際提交長度。
+  https://github.com/Carteahere/MSU2-USB-Screen-Android/blob/main/app/src/main/java/com/msu2/android/usb/Msu2Protocol.kt#L13-L28
+    尺寸與Flash常數。
+  https://github.com/Carteahere/MSU2-USB-Screen-Android/blob/main/app/src/main/java/com/msu2/android/usb/Msu2Serial.kt#L20-L28
+    60B分塊常數。
+  https://github.com/Carteahere/MSU2-USB-Screen-Android/blob/main/app/src/main/java/com/msu2/android/usb/Msu2Serial.kt#L143-L167
+    ack與sendScreen流程。
+  https://github.com/Carteahere/MSU2-USB-Screen-Android/blob/main/app/src/main/java/com/msu2/android/usb/Msu2Serial.kt#L202-L211
+    drainAll的30ms、三次靜默與300ms期限。
+  https://github.com/Carteahere/MSU2-USB-Screen-Android/blob/main/app/build.gradle.kts
+  https://github.com/Carteahere/MSU2-USB-Screen-Android/blob/main/build.gradle.kts
+  https://github.com/Carteahere/MSU2-USB-Screen-Android/blob/main/gradle/wrapper/gradle-wrapper.properties
+    Android建置與相依版本。
+  上述main網址會隨上游更新；本文件只描述本輪取得的內容。
+[L1] https://oshwhub.com/einx/msu2_lite_pcb
+[V1] https://www.bilibili.com/video/BV1bvh9eqENB/
+[V2] https://www.douyin.com/video/7461565073647996169
+[H1] 使用及開發指南-MSU2系列可編程USB屏幕，Einx，v1.10，2024-11-02，24頁。
+  作者公開來源：https://gitee.com/mo-li-gong/msu2-series-usb-screen/tree/master/说明文档
+  本地：reference/public_research_20261010/MSU2_Series_Development_Guide_v1_10.pdf
+  SHA256：0b242b6e30b7907f52825df16ed9bc7a955e82cc1d807a2640148130ee85d185
+[H2] 使用說明書-朔月派RISC_V開發板，Einx，v1.00，2025-02-25，14頁。
+  作者公開來源：同上Gitee文件目錄；下載詳見同目錄SOURCE.txt。
+  本地：reference/public_research_20261010/MSU2_LITE_Board_Guide_v1_00.pdf
+  SHA256：0c7c448e1061e3872222bd810b6ed5566e2a774b7a1ce2255c71a6d214e848b1
+[W1] https://github.com/openwch/ch32x035
+  WCH官方CH32X035系列範例及規格摘要，非MSU2成品韌體。
+
+主線對照：msu2_cpp_v0_2/docs/PROTOCOL.txt、src/protocol.cpp、src/session.cpp、
+src/delta.cpp、docs/MACOS_TEST_PLAN_zh-TW.txt及以上明列之macOS結果目錄。

@@ -1,0 +1,55 @@
+MSU2 Mini macOS：會話公告、同連線恢復與3840對照
+2026-10-11，Asia/Taipei
+
+執行與分析分工
+實機唯一操作者：GPT-6 Luna，中；主代理不開USB串列埠。
+完成實機任務後，全面性分析交GPT-6 Astra，Ultra。
+每案使用共同SerialGuard並確認cu/tty兩個別名沒有其他持有者；等待他人自然結束。
+原版C++、Session、SerialTransport及局部更新演算法保持不變，不進行flash、Windows或Rust開發。
+
+前一輪直接證據
+results/macos/idle_ack/20261010T235804_666506+0800_906bf5c5/hardware
+原版三個60 FPS、45 FPS的30秒案例全完成。
+chunk60同fd完全無讀寫閒置5秒成功；30秒、60秒開窗ACK逾時，但每100ms收到MSN01。
+chunk3840首張full成功，緊接第二張開窗ACK逾時；當時兩秒完全沒有RX。
+首張完整full約32970 bytes、551次write，payload接受需要約35~37ms；不能把首幀drop當作ACK逾時。
+
+固定有限矩陣（每案獨立程序，間隔3秒，不自動重試同案）
+1. passive_idle：chunk60，先strict handshake與固定full；同fd僅RX、不TX，最多35秒。
+   第一個完整MSN版本公告收到後再讀350ms，然後用舊Session開窗。
+   若失敗，保持同fd重新等待banner、送MSNCN、核對exact echo，送兩張固定full。
+   整個閒置／恢復過程重複兩次。
+2. silent_idle：同樣首張full後，30秒完全不read/write，舊Session開窗失敗後以同fd完整握手恢復。
+3. active_control：六個5秒間隔，每段僅RX，結束送一張同樣full，觀察是否出現MSN版本公告。
+4. 原版moving/diff/pair/keyframe_ms0/chunk60/timeout2000，60 FPS、3600張（60秒）。
+5. chunk3840：首張與第二張固定full間不額外等待；若失敗，最多30秒只RX。
+   然後同fd、strict handshake，以chunk60的獨立Session送兩張full；明確區分恢復的chunk設定。
+6. 與5相同，第二張前無讀寫等待100ms。案例5的狀態可能影響案例6初始握手，需保留順序限制。
+7. 與4相同，檢查3840對照之後重新開埠、完整握手及60秒串流能否完成。
+每個probe由launcher限制110秒；原版串流frames/fps+60秒限制。
+協定失敗與已完成診斷紀錄分開，不因成功恢復而把原始ACK失敗標成通過。
+
+計時與記錄限制
+使用unchanged Session與SerialTransport之外的一層觀察wrapper，記錄呼叫前/後時間；發送過程不寫log。
+完整保存每次read收到的所有byte，TX只保存前18個byte與完整size；結束才輸出事件。
+MSN parser保留五個尾端byte以處理跨read公告；只計完整00MSN+兩位數。
+first_banner_ms是主機第一次收到完整公告距最後一次write_all回傳的時間；不是MCU實際發送時間。
+passive_idle持續read，因此只測應用停止TX時的協定狀態，不能當作USB suspend或MCU功耗證據。
+silent_idle才與前輪相同完全沒有應用IO，但其idle期間沒有收到時間資訊，不能精確量轉換時刻。
+wrapper時間與配置記憶體可能有observer effect；原版兩個60秒串流作獨立對照。
+MSN版本公告可能来自會話失效、reset等狀態；沒有韌體/電源/bus trace，不能直接宣布休眠根因。
+prefix ACK 02 03只表示收到既有協定回應，write_all只表示OS接受；沒有LCD完成或光學FPS計量。
+這輪未要求人工目視，visual_verification維持not_observed。
+
+工具與驗證
+tests/macos/session_state_probe.cpp
+scripts/macos/build_session_state_diagnostics.py
+scripts/macos/run_session_state_suite.py
+新的獨立工具目錄results/macos/session_state_tools；不覆蓋前輪idle_ack_tools或原版binary。
+原版SHA256：4b64f7a3b542653ac843551cd0d7193adbb339c09ff64840e460e992307d960c
+新probe SHA256：d2880d4b89531a5b0acbf8a30a499819ca8c92aa3fb41e695a370f87ee11e7cd
+編譯與fake transport自測通過；自測實際C++產生CSV，經Python解析17欄、完整send/monitor/error引用。
+34項Python離線測試全部通過，含不完整恢復不可判完整、協定失敗與記錄完整區別、子程序在持鎖內回收。
+dry-run兩輪只產生命令與manifest，不開串列埠、不計硬體結果。
+執行：python3 scripts/macos/run_session_state_suite.py --label session_state_a
+CSV/log/manifest由runner建立唯一結果目錄，保存command、exit、前後exe hash及guard證據。

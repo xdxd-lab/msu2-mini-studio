@@ -1,0 +1,66 @@
+MSU2 Mini macOS 靜止畫面→恢復局部更新測試計畫
+2026-10-11；實機：GPT-6 Luna 中；測後全面分析：GPT-6 Astra Ultra。
+
+問題與假說
+前一輪同 fd 的被動觀察，在全幀 payload 主機寫完後約 5.114 秒收到 MSN01。
+既有差異更新在影像不變、keyframe_ms=0 時不傳送、不讀取 serial。
+即使擷取設定 45/60 FPS，長時間静止也可能讓設備會話回到宣告 MSN 的狀態。
+本輪測實際 producer→latest frame→DeltaPlanner→Session 的靜止/恢復流程。
+此假說不涵蓋先前連續移動中段的 ACK 逾時，也不證明裝置省電/休眠。
+
+固定條件
+原始正式執行檔 SHA256：
+4b64f7a3b542653ac843551cd0d7193adbb339c09ff64840e460e992307d960c
+原始 MSU2_MINI_CPP_v0_2_20261010/msu2_cpp_v0_2 不修改。
+所有測試為 moving / pair / diff / chunk 60 / ACK prefix / keyframe 0。
+握手/各 I/O 原始階段預算 2000ms；每例新 process；間隔 3 秒；無自動重跑。
+MSU2 使用 /dev/cu.usbmodem01234567891；每例用共享 SerialGuard。
+取得 guard 後立即 lsof 同時確認 cu 與 tty 別名；busy 等待自然完成。
+無 Flash、韌體、方向指令；主代理與 Astra 分析代理不開 serial。
+
+六個順序案例
+A01：45FPS、靜止 3 秒、原錯誤處理，360 個擷取 id。
+A02：45FPS、靜止 6 秒、原錯誤處理，495 個擷取 id。
+A03：60FPS、靜止 6 秒、原錯誤處理，660 個擷取 id。
+A04：45FPS、靜止 6 秒、實驗性單次恢復，495 個擷取 id。
+A05：60FPS、靜止 6 秒、實驗性單次恢復，660 個擷取 id。
+A06：45FPS、靜止 3 秒、原錯誤處理重複，360 個擷取 id。
+每例 1 秒移動→3/6 秒相同影像→4 秒移動，未改動 producer 排程與 latest queue。
+source_tick 把靜止期間映射為最後一張暖機圖樣，恢復從下一個 tick 接續。
+第一個恢復影像 id：45/3=180、45/6=315、60/6=420。
+實際無 TX 時長用最後 payload 的 OS 接受 W 到下一個 window T 計算。
+這不是裝置收到 payload 的時刻或硬體計時器的精確起點。
+
+實驗性恢復只位於 results 內的生成副本
+tests/macos/static_transition_trace.hpp 包裝未修改的 native Transport。
+baseline 保留原送完全部 patch 才 commit、原期限、失敗 invalidate 後退出。
+recovery 在 window ACK wait 失敗、且該次讀取有完整 MSNdd 時才開始。
+每個 process 最多一次：同 fd 使用原 Session.handshake 的 MSN→exact MSNCN，
+再用 invalidated 的原 DeltaPlanner 重算當下全幀，全部送成功後才 commit。
+不盲送失敗 payload、不延長 ACK 預算、不放寬握手、不中途重建 producer。
+原始 fault、frame id、patch index/count、先成功 patch 數與 RX 均保留。
+恢復中的原錯誤與後續完成是兩個結果，不能用 exit 0 抹除原錯誤。
+恢復時 CSV 的 ACK/payload 與 bytes 為成功重傳全幀的資料，不含失敗嘗試；
+host_latency 則包含等候/握手/恢復，故應搭配原始 OBS 對照。
+等待 ACK 期間的 latest queue replacement 不可混稱 45/60FPS 持續吞吐極限。
+
+觀測與限制
+preallocated 65536 記錄，每筆最多 512 RX bytes，TX 記前 18 bytes 與完整長度。
+OBS 在 consumer 結束、producer join 後才寫 log；不在每個 I/O 時寫檔。
+有滿額 overflow 則證據標為 invalid，不繼續新例。仍有 clock/memory copy 觀測負擔。
+native discard_input 的 tcflush 會丟棄未讀資料，本工具無法看見被 flush 的 bytes。
+首個失敗 RX 的 banner 是讀出時間；靜止時沒讀取，不能据此倒推精確送出時間。
+prefix 02 03 是 window ACK，write_all 完成為主機 OS 接受，均不等於 LCD 完成。
+畫面目視未取得新的使用者回覆時記為 not_observed，不沿用舊例目視驗證。
+固定順序、無控制斷電與少量重複，不作 universal recovery 或所有工作負載保證。
+
+離線驗證與留存
+build_static_transition_diagnostics.py 比對唯一 source markers、編譯獨立 copy。
+fake transport 測靜止 mapping、跨 read MSN gate、strict echo、partial failure、
+invalidate/full、全幀成功前無 reference、恢復後 delta 與一次嘗試上限。
+Python 驗證 nonfinite clock、RX 長度、trace overflow、source變動 fail closed、矩陣。
+build.json 保留 compiler version、所有 include/source、產生檔、helper/runner 的 hash。
+manifest 保留 build metadata 副本、兩個正式/實驗 binary hashes、每例 command/exit，
+CSV/log/guard與.evidence.json；launcher輸出/退出碼由實機子代理另存。
+初始握手失敗代表該例未進入靜止情境，不能當成靜止/恢復失敗。
+完成排程仍可含失敗案例；重測需另開有標示的紀錄，不能覆蓋原例。

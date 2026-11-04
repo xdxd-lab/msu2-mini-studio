@@ -1,0 +1,388 @@
+MSU2 Mini macOS：會話失效、ACK、重連與 FPS 證據全面分析
+分析日期：2026-10-11（Asia/Taipei）
+分析代理：GPT-6 Astra，Ultra；依 AGENTS.md 在實機任務完成後接手。
+
+本分析僅讀原始 CSV、OBS log、manifest 與程式，另產生本報告及
+results/macos/session_state/astra_analysis.json。未開啟串列埠、未執行測試、
+未改原始 C++、Diff／DeltaPlanner／pair／latest-frame、未燒錄或開發 Windows／Rust。
+所有「成功 full」均指既有開窗 ACK 與主機 payload write 完成，沒有 LCD 完成量測。
+
+一、主要判斷
+
+1. 首張約 35～37 ms 及起始 waiting-frame drop，主要符合全幅傳輸成本與單槽佇列。
+   同資料立即重送、5 秒後重送與多次恢復後的 full 仍要相近時間，沒有只出現在首張的
+   額外喚醒延遲證據。握手完成後才啟動擷取執行緒，不能把 handshake 等待算成 drop 原因。
+   這不能排除設備某種低功耗，但目前不需要休眠假說來解釋首張成本。
+
+2. 停止 TX 後，兩個 passive cycle 都在最後 payload write 返回約 5.114 秒後收到
+   完整 MSN01；舊 Session 再開窗沒有 ACK，但同 fd 的完整 MSN／MSNCN 握手和兩張
+   full 成功。這是「原投屏會話已不可直接沿用、同一傳輸連線可重新建立會話」的強證據。
+   尚不能判定是韌體會話計時退出、內部 reset／watchdog，或包含省電的狀態轉換。
+
+3. 3840-byte 兩案也在首張最後 payload write 約 5.11 秒後收到 MSN01；與 passive
+   的時距接近，是新的共同計時線索。然而首張後約 0.28／101.29 ms 已開始第二次
+   開窗，之後兩秒完全無 RX 並逾時，且後續 exact MSNCN echo 失敗。普通 idle 與 3840 尚不能
+   由「相同的正常閒置退出」完整解釋；相同公告不代表相同內部失敗原因。
+
+4. 一次原版 60 FPS／3600 張完整成功、0 drop，證明此 moving/diff/pair 負載可以
+   在當次條件下完成。歷史首張後、496 次與 1672 次完成後的 ACK timeout 仍成立。
+   稀發、狀態或時序相關的失敗與有限次成功可以並存；本輪沒有修復，也未達可靠性驗收。
+
+5. 45～60 每級 30 秒初掃沒有 ACK 故障；59 是該次首次出現 startup waiting-frame
+   replacement 的點，不是硬性 ACK 門檻。60 是目前已完成測試中的最高目標 FPS，
+   不是 LCD 光學 FPS 或已驗證的長期穩定上限；58 也不能稱穩態上限。
+
+6. 改善應先維持 chunk60 與原更新算法，增加可定位的 session／transport 狀態紀錄，
+   對確認失效的會話做有界、嚴格重握手與 full 基準重建。3840 與歷史中途 ACK 故障
+   另做單變因對照；不能用放寬 ACK、盲目重送或延長 timeout 宣稱修復。
+
+二、證據索引與判定方法
+
+以下縮寫均相對工作區根目錄；同名 .csv／.log 與 manifest 保留在原處：
+S = results/macos/session_state/20261011T012917_845923+0800_a8f4050a/hardware
+F = results/macos/session_state_followup/20261011T013222_778403+0800_e7f9ffb2/hardware
+I = results/macos/idle_ack/20261010T235804_666506+0800_906bf5c5/hardware
+W = results/macos/fps_sweep/20261010T230837_323074+0800_70972a82/hardware
+H496 = results/macos/20261010T222424_891967+0800_d6c9ba9a/hardware
+H1672 = results/macos/20261010T224153_082016+0800_diag_diff60_repeat30s_a_9eef2420
+H1 = results/macos/20261010T223559_194768+0800_1e9a8d4b/hardware
+歷史索引 = results/macos/ack_investigation_20261010/recordings.json 及 recordings.tsv
+本次離線衍生資料 = results/macos/session_state/astra_analysis.json
+
+衍生 JSON 保存 S／F 八案逐 phase 的 RX bytes、完整 MSN01／MSNCN／ACK prefix
+計數、原 log 行號、重新計算的公告錨點、W 十六案 CSV 摘要、歷史失敗的最後成功列，
+以及實際分析所讀 48 個檔案的 SHA256。這是原始證據的索引／重算，不取代原檔。
+
+原版執行檔：msu2_cpp_v0_2/build/msu2
+SHA256：4b64f7a3b542653ac843551cd0d7193adbb339c09ff64840e460e992307d960c
+本輪 probe：results/macos/session_state_tools/session_state_probe
+SHA256：d2880d4b89531a5b0acbf8a30a499819ca8c92aa3fb41e695a370f87ee11e7cd
+S／F 各案 manifest 的執行前後雜湊一致，命令、退出碼與 cu／tty guard 證據均保留。
+msu2_cpp_v0_2 是原封裝來源目錄的 symlink；分析未改該來源或執行檔。
+
+已核對 tests/macos/session_state_probe.cpp、三個 session_state runner/build script、
+src/session.cpp、transport.cpp、main.cpp、delta.cpp、include/msu2/latest.hpp。
+本次沒有重跑交接中已通過的 34 項 Python／C++ fake transport／17 欄 CSV 測試，
+亦不把既有 57 項封裝 checksum 的主代理確認描述成本分析新執行的測試。
+
+S 與 F 的 launcher 都 exit 1；manifest.status=completed 只表示排程走完。
+successful recovery 不會消除原 ACK failure，故 diagnostic_complete_with_failures 正確。
+S01、S05、S06 的 partial_or_invalid 表示規劃 probe 未完成：S01 初握手失敗，
+S05／S06 恢復握手失敗；這不代表所有既有列毀損。
+仍可引用已完成操作、完整 RX 及明確失敗 phase，不能把未執行的 recovered_full 算通過。
+普通 sandbox 的 20261011T012913_032529+0800_376d1fb0 是開埠 EPERM，未有設備 IO；
+dry-run 也不列硬體故障。F 是另一次啟動，保留 S01 的失敗，不用 F 覆蓋它。
+
+三、本輪逐案事實
+
+S01 passive_idle：initial_handshake 在 handshake_echo_wait 逾時。
+  log:4 先收到 00 4d 53 4e 30 31；log:5–6 送出並獲 OS 接受 00 4d 53 4e 43 4e。
+  echo wait 僅在 log:7、15.264500 ms 收到另一個 MSN01，其後到約 2 秒沒有 RX。
+  沒有 exact MSNCN，沒有 initial_full，沒有 passive idle cycle；這不是 idle 恢復失敗。
+
+S02 silent_idle：首握手及 full 完成；30005.031250 ms 無 SerialTransport read/write。
+  舊 Session after_idle_full 在 window_ack_wait 約 2001.266 ms 失敗，未開始新 payload。
+  失敗 phase log:1118–1160 收到 582 bytes，逐 byte 恰為 97 個完整 MSN01，沒有 02 03。
+  log:1161–1164 隨後重新等到 banner、送 MSNCN、收到完整 exact echo。
+  同 fd recovery_handshake 共 30.283083 ms；兩張 recovered full 均完成，payload 為
+  35.781042／35.381625 ms。不能從累積公告 bytes 反推 silent 期間的精確公告起點。
+
+S03 active_control：首 full 加六個「僅 RX 5000 ms → 固定 full」全部完成。
+  六段實際 monitor 5000.113～5001.134 ms，每段都是 0 RX／0 banner。
+  六個後續 full 的 window_write 加 ACK 為 0.261667～0.405000 ms；payload
+  35.746042～36.572000 ms。約 30 秒總過程中，以此 TX 間隔沒有觀察到公告或失效。
+
+S04 original_60_60s_before_chunk3840：原版 SHA 不變，exit 0，CSV 3600 列，
+  frame_id 精確為 0..3599，captured=sent=3600，所有 dropped_total=0。
+  elapsed_s=59.9884，host_send_fps=60.0116；首 full 32970 B／551 app-level calls，
+  window_ack_ms=0.282、payload_write_ms=36.2418、host_latency_ms=36.8184。
+  其餘 3599 列均 partial；每列平均 607.144 B，範圍 372～900 B；總計 2218080 B，
+  約 36975 B/s。只有一張初始化 full，不能描述成每秒傳送 60 張 full。
+
+S05 chunk3840_gap0：strict 初握手及首 full 完成，payload_write=46.892583 ms，
+  32970 B／10 app-level calls。最後 payload W → 第二 window T 的實際間隔為 0.279959 ms。第二窗兩秒內所有 read 均 0。
+  其後 monitor 收到 24 B／4 個 MSN01；same-fd recovery_handshake 又在 echo wait
+  失敗，期間 114 B 恰為 19 個 MSN01，沒有 MSNCN。未送任何 recovered_full。
+
+S06 chunk3840_gap100：strict 初握手及首 full 完成，payload_write=46.431875 ms。
+  sleep 實際 101.164375 ms；最後 payload W → 第二 window T 為 101.285167 ms。
+  第二窗依然兩秒 0 RX，之後 24 B／4 個 MSN01；same-fd recovery echo wait 仍失敗，
+  期間亦為 114 B／19 個 MSN01。100 ms 的幀間等待在此樣本沒有恢復傳輸。
+  recovery Session 設 chunk60，但 handshake 本身只送 6 B，尚未進入 chunk60 payload；
+  不可據此說「chunk60 payload 的恢復傳送也失敗」。
+
+S07 original_60_60s_after_chunk3840：initial handshake response timeout，無 CSV、無串流。
+  原版沒有 OBS；由 command 無 orientation、CSV 在握手之後建立，以及 timeout 訊息
+  的程式路徑，可歸到 initial echo wait，不能聲稱逐 byte 看過此案 RX。
+  不是 60 FPS 運行失敗；這個「3840 後原版 60 秒對照」的串流部分沒有執行。
+
+F01 passive_idle follow-up：同 fd 兩個 cycle 都有完整公告、ACK 失敗、完整恢復。
+  cycle1 monitor=5464.302167 ms，24 B／4 banners，first_banner_ms=5114.269125。
+  cycle2 monitor=5465.300792 ms，24 B／4 banners，first_banner_ms=5114.602625。
+  after_idle_full 分別約 2000.844／2000.298 ms window ACK timeout；各失敗 phase
+  恰收到 120 B／20 個 MSN01，沒有 ACK prefix。不是錯誤 matcher 拒絕了正常開窗 ACK。
+  strict recovery_handshake 共 93.113708／93.497375 ms；各自兩張 full 均完成。
+  這是兩個同程序、同 fd、相繼恢復的 cycle，不是兩個獨立上電／USB 重接樣本。
+
+四、5.11 秒公告的時間錨點與含義
+
+probe 的 first_banner_ms = 第一次完整公告被 scanner 辨識時的主機 clock
+                            − 最近成功 write_all 返回時的主機 clock。
+這不是從 monitor 開始計，也不是 MCU 發送公告或 LCD 完成時間。
+F 的最近 TX 是上一 full 的最後 payload；S05／S06 的最近 TX 則是失敗的第二窗。
+
+以下由 OBS 原始時戳重算，單位 ms；最後數位只供追溯，沒有微秒级設備精度的主張。
+案例          最後 payload W     第二 window W    首 MSN01 R       R−payload W
+F cycle1         36.679625            —             5150.944459       5114.264834
+F cycle2       7670.177875            —            12784.777834       5114.599959
+S05 gap0       1851.193500       1851.484125        6965.391584       5114.198084
+S06 gap100       46.930083        148.227791        5158.870250       5111.940167
+
+原 log 行號：F cycle1 payload:1116／banner:1217；cycle2 payload:3482／banner:3583；
+S05 payload:66／window:69／banner:172；S06 payload:31／window:34／banner:134。
+CSV 的 S05=5113.913166、S06=5010.647750 是對第二 window 的錨點；後者短約 100 ms
+不表示設備的公告門檻提早約 100 ms。CSV clock 與 OBS record clock 另有約數微秒差，
+由 record／scanner 呼叫順序即可解釋，不應偷偷混成相同定義。
+
+直接支持：
+  - 在兩個 passive cycle 中，單純停止應用 TX，約 5.114 秒後讀到公告；持續 read
+    仍會發生，因此「完全沒有 host read」不是此現象必要條件。
+  - 六次約 5.00 秒便送 full 的控制沒有公告且能繼續傳送，與「TX 活動維持會話」一致。
+    控制使用完整有效 full，沒有證明任意 byte、window 或未定義 heartbeat 都能維持。
+  - 公告後舊 Session 開窗只收到公告，重新完整握手後仍用同 fd 成功；主機無須 reopen
+    就能恢復這三次 idle 事件。descriptor 存續及 RX 工作降低持續完全斷線的解釋力。
+
+較有根據但未證實的推論：
+  設備／傳輸鏈有約五秒量級的會話或復原計時機制，正常 idle 與 3840 異常都可能
+  最終走到公告出口。S06 第二 window 比 S05 晚約 101 ms，但公告相對首 payload
+  幾乎同時，是「該 window 沒有重啟這個計時」的候選線索。
+  不能據此判定 window 是 USB 未送達、韌體未接受、未解析，或本就不屬於計時重置條件。
+
+仍無法推出：
+  - 精確 5000 ms／5114 ms 的韌體常數。OS 接受、USB 傳送、韌體消費、狀態切換、
+    首次公告排程與主機 read 是不同時點；未測控制端或裝置端時鐘。
+  - 嚴格失效門檻介於 5.000 與 5.114 秒。公告可能晚於內部失效，單案成功與另案公告
+    並非同次狀態切換的上下界；仍需邊界附近有界重複與順序平衡。
+  - USB suspend、MCU／LCD 省電或喚醒的根因。passive RX 會持續呼叫 IO，silent_idle
+    又沒有中途時間資訊；沒有功耗、USB bus、韌體 reset reason 或光學證據。
+  - 韌體從未 reset。同一 USB descriptor 能恢復不排除未引起重新枚舉的內部 reset。
+
+五、首 full、startup drop 與 60 FPS 成功／失敗如何並存
+
+I 的同資料 chunk60 full（首張、立即重送、5 秒後）payload 約 34.530～36.064 ms；
+本輪 chunk60 固定 full 亦約 34.368～36.572 ms。代價持續存在於已建立的暖 Session，
+不是首張專有。I 的立即重送 ACK 約 2.7～3.8 ms，也提示 write 返回時設備可能還有
+尾端處理；此為合理候選，沒有完成 receipt，不能把它定位到 LCD 或特定 buffer。
+
+main.cpp:201–218 先做 connection，才建立／啟動 producer。latest.hpp:13–24 只保留
+一個等待槽；正在送出的 frame 不被中斷，新擷取會取代尚未送出的 waiting frame。
+約 36 ms 的 full 橫跨兩個名義 60 FPS period，足以讓首張期間產生等待槽取代；
+不是每個 60 FPS 樣本必然 drop。producer 與 consumer 的實際排程、capture 完成時點、
+sleep_until 返回和 queue handoff 都可改變結果；現有 CSV 沒有完整 capture／enqueue 時戳。
+
+S04 首 full host latency=36.8184 ms 仍 0 drop，frame1 成功但 host latency=21.6035 ms。
+W59／W60 則各缺 frame1、第一列 drop 已為 1、其後不增。這個對照反駁「59 起必丟一張」
+的固定門檻說法，也提醒後續最大 latency 變小可能是那張等待久的 frame 被取代，
+不能解讀成提高 FPS 自動改善延遲。dropped_total 是主機 waiting replacement，非 LCD
+掉畫面或 ACK timeout；最終失敗時未輸出的 drop 也不能由最後成功列推算。
+
+S04 的後續平均命令量只有約 607 B／更新，與首 full 32970 B 完全不同。
+60 個小更新／秒能成功，不矛盾於全幅傳輸的成本；外部 USB FS raw 全幅頻寬推導不能
+直接否定這個 diff 實測，也不能反過來用 diff 成功證明任意全幅 60 FPS。
+
+歷史原版、相同 SHA、chunk60 的三種失敗均保留：
+  H1：只完成 frame0，隨後 response timeout。
+  H496：496 個成功列，frame_id 0、2..496；最後列 tiles／2 rectangles／372 B。
+  H1672：1672 個成功列，frame_id 0、2..1672；最後列亦 tiles／2 rectangles／372 B。
+main.cpp 在所有 patch 成功後才 commit／寫 CSV，所以最後成功 tiles 不等於失敗 patch。
+下一個實際 frame_id、哪個 rectangle、是否在第一或第二 window 失敗，都沒有直接 trace。
+S04 的 frame496、497、1672、1673 又均成功，且 frame496／1672 的 2-rect tiles 都完成；
+不足以認定 deterministic 座標／tiles 編碼錯誤，也不能排除多 patch 突發或時序交互作用。
+
+活躍 moving stream 每幀都有傳輸，約 16.7 ms 的名義間隔與 5 秒 idle 條件不同。
+因此本輪 idle 機制不直接解釋歷史 active midstream timeout。仍可能有傳輸短暫停頓、
+設備狀態累積或另一條失效路徑；沒有失敗現場 TX／RX，現在只能列候選。
+一輪 60 秒成功能排除「這組固定負載每次必在 30 秒前失敗」的主張，不能排除偶發故障。
+既有輪次有順序、負載、trace 包裝與恢復條件差異，不能合併成無偏失敗率、MTBF 或信賴界。
+
+另有直接的產品流程含義：delta.cpp 在畫面不變且不強制 keyframe 時回傳空 patches，
+main 不會呼叫 Session::send。因此 keyframe_ms=0 的靜止畫面，即使持續高 FPS 擷取，
+仍可能超過五秒完全沒有 TX；下一次畫面改變可能遇到本輪 idle 路徑。這是程式與 idle
+資料支持的待驗情境，尚未做專門的靜止→改變實機輪。恢復設計應依實際 TX／banner
+和 Session 狀態，不能假設高設定 FPS 等於一直維持協定連線，也不必為此改差異更新算法。
+
+W 十六個逐級案例均完整通過 ACK／程序判定。45..58 零 waiting replacement；59、60
+各一次初始化 replacement，沒有新增。觀察到的範圍應分開寫：
+  ACK／transport 失穩點：本次 45..60 初掃未找到；歷史 60 偶發失敗仍待定位。
+  起始佇列取代：該次最早 59，不是普遍效能上限。
+  host 吞吐：目前最高測到目標 60，後續另有 3600 張成功；沒有測 >60。
+  LCD：本輪沒有目視或光學量測；先前指定 45 FPS 目視正常僅屬該舊案例。
+未啟動的 confirmation、S07 的未執行串流、sandbox 拒絕皆不加入上述通過／失敗分母。
+
+六、3840 與 idle 可以共用多少解釋
+
+共同觀察只有：曾有成功握手與首 window ACK；之後 window ACK 缺失；最終收到
+相同的完整 MSN01。重算後約 5.11 秒的 payload 參照時距，使共同公告／復原計時
+機制比前輪「3840 永遠無 RX」更有根據；前輪只看兩秒，不能聲稱永遠沉默。
+
+關鍵不同仍然存在：
+  idle：先連續無 TX 約 5.46 秒或 30 秒才再開窗；ACK wait 期間持續收到 MSN01；
+        三個已觀察事件在同 fd 嚴格握手後恢復 full。
+  3840：首 full 後立即或約 101 ms 就開第二窗失敗；ACK wait 兩秒完全無 RX；
+        更久才公告；兩次恢復時 MSN01 繼續出現但 MSNCN echo 不來。
+
+「第一個大突發後收取／解析狀態異常，若干秒後落回公告」能涵蓋較多 3840 現象，
+但仍只是假說。大 chunk 改變的是應用 write 尺寸、syscall／driver 接受節奏與突發形狀，
+不能直接稱 USB packet 邊界。舊 trace 的 OS 短寫 offset 正確，只排除該路徑上一個
+明顯的重送／漏移位實作錯誤，沒有證明 USB／韌體端逐 byte 收到一致。
+
+歷史 bars chunk3840 在 1 FPS 亦失敗；solid 的 payload 1200 B 亦失敗。
+本輪 100 ms gap 也無效，削弱「只要降低來源 FPS／給普通幀間時間就能修好」的解釋。
+但沒有排除 payload 中途細分節流、write 排空、driver／韌體 command framing 的差異。
+3840 的 payload write 反而比 chunk60 慢約 10 ms，不能把全程平均送速快慢等同瞬時突發。
+歷史 54／60／120／126／180 短輪通過、192／240／390／3840／3846 短輪失敗，
+只支持 chunk／pacing 值得控制；樣本與條件不足以證明 180 B 硬體上限、USB 64 B／ZLP 根因。
+
+七、握手失敗與 matcher 審核
+
+Session::handshake（session.cpp:41–64）先找 00 MSN 加兩個 ASCII 數字，再送出
+00 MSNCN，wait_pattern 比對完整六 bytes。wait_pattern 保留跨 read 的尾端，
+容許前後其他 bytes；它是 exact pattern 的 substring match，不是單一 read 長度必須等於六。
+沒有 nonce／transaction ID，因此這不是絕對新鮮度證明；本輪成功恢復有順序正確的
+banner → TX → exact echo → window ACK → payload，遠強於「埠存在／只看見 banner」。
+
+開窗的預設仍是 legacy prefix 02 03（session.cpp:66–68），不是 full-frame ACK。
+本輪 probe 成功的 window RX 實際恰為 02 03 07 00 00 00，未見另一种異常 ACK
+被誤判成功；失敗 idle 的 RX 全是 MSN01、3840 的兩秒窗口為零 RX，沒有應被接受
+卻被錯 matcher 拒絕的開窗回覆。這些案子不能用「把 ACK 放鬆一點」解決。
+prefix 規則本身仍可能在其他流量下接受無關 02 03；本資料沒有完成協定全面驗證。
+
+echo failure 至少有兩個 host-side 表型，不能全部合併：
+  S01：MSNCN 被 OS 接受後，另收到一次 banner，接著沉默；可能是命令使設備離開
+       公告狀態但 echo 遺失，也可能設備／傳輸停頓，不能只憑沉默斷定已連上。
+  S05／S06 recovery：MSNCN 被 OS 接受後，19 個新 MSN01 持續出現，完全無 exact echo。
+       比較符合命令沒有被有效處理、未完成模式切換或反覆回到公告，但原因仍未確定。
+  S07：沒有完整 RX trace，只能確認初握手 echo 路徑 timeout，不知道是哪個表型。
+
+有根據的候選：既有裝置狀態／回復順序影響、banner 與真正可接受命令時點有競態、
+主機已接受但下游 TX 未被設備有效消費、韌體命令解析／reset 狀態，或 ACK／echo 在
+driver／設備路徑遺失。程式在開埠時嘗試設定 DTR/RTS、關閉時嘗試恢復原值；
+但容忍不支援部分 ioctl，也未核驗析構恢復結果。此輪未控制或量測線狀態，
+故可列影響開埠樣本的候選，但不能解釋成已證實原因，亦不能單獨包辦 same-fd 失敗。
+
+較弱或缺乏支持的解釋：已知第二個測試搶埠（每案 guard／雙 alias 檢查無 owner）；
+MSN01 本身等同正確 MSNCN；matcher 不支援跨 read；固定 60 FPS 自動使初握手失敗。
+合作鎖與 lsof 不能排除所有非合作外部程序及 race，但不能在無證據時把它當主要根因。
+也不能由 OS write 成功斷言 echo command 已送到裝置，或由 missing echo 斷言裝置
+從未處理命令。沒有 bus／韌體 trace，這兩端仍不能分離。
+
+八、方法、觀察者效應與 runner 品質限制
+
+1. ObservedTransport 包住未改的 SerialTransport；每次 TX 前後／read 返回都記 clock，
+   分配／複製事件。事件最後才 dump，避免傳送中大量 log IO，但 chunk60 每張約有
+   1102 個 T/W events，chunk3840 約 20 個；額外 pacing 不等量。不能把 wrapper
+   與未加觀測原版視為時序完全一致。S04 是獨立原版控制，但 S07 沒進入串流。
+
+2. CSV 每個 operation 後 flush，部分 BEGIN／HANDSHAKE 有 stdout flush；這些不在
+   send 的 host_ms 裡，卻會增加操作間隙。S05「gap0」意指沒有要求 sleep，實際還有
+   約 0.28 ms 其他開銷。應以 OBS 的 TX 錨點比較，不能把 requested_ms 當精確空檔。
+
+3. 所有 read 回傳 bytes 都完整記錄；本分析亦核對 RX hex 長度等於 size。TX 只保存
+   前 18 B＋size；payload 全文的相同來自固定 frame／同 source 與 hash，而非完整 wire
+   擷取。wrapper 看不到內部 ::write 的每次短寫，也看不到 USB packet。
+   discard_input 是 TCIFLUSH，只記 F 事件、不保存被丟掉的 bytes。因此「完整 RX」
+   精確含義是完整的 read 回傳資料，不是所有曾到達 kernel／driver 的輸入。
+
+4. 每個 monitor 新建 BannerScanner，保留五個尾端 bytes，可正確解析 split／multiple
+   6-byte banner。monitor 的 4 banners 只涵蓋首個公告後約 350 ms，不是整案所有公告。
+   恢復／ACK wait 的後續公告另在 raw log，不能用 CSV 的4個代表總共只收到4個。
+   F 首個到下一個約120 ms，後續約100 ms；不是每個公告間隔都精確100 ms。
+
+5. window_ack_ms 包含窗口 write＋wait，排除前置 input discard；payload_write_ms 是
+   ACK 後主機寫入的總耗時；probe host_ms 包含 Session 呼叫與 input discard（TCIFLUSH），
+   不含 CSV flush。設定 2000 ms 是
+   分階段預算，不是整個 handshake 或 send 的唯一總截止。main 的 multi-rectangle
+   deadline 只在 patch 前檢查，亦非嚴格覆蓋最後一次 Session 呼叫的整幀截止。
+
+6. sequential 固定順序、每案間隔3秒，沒有可控 power cycle；前一案和 DTR/RTS
+   狀態可延續。S05 恢復失敗後 S06 初握手成功、S06 後 S07 失敗、稍後 F 又成功，
+   不支持「3840 必然把裝置永久鎖死」，也不足以判定固定等待多久就可靠。
+   initial banner 有立即收到與等待約1.8～1.9秒的差異，可與既有會話狀態相容，
+   但不能把這個等待直接叫 sleep wake-up latency。
+
+7. runner 是記錄一致性防線，不是裝置真實性 oracle。summarize_probe 未全面驗有限
+   數值，亦未獨立把每個 scenario 的 chunk／requested_ms 對到常數。本輪逐讀 source／
+   raw／CSV 均符合預定值，未發現因此需要排除的既有樣本；未來可補離線 validator。
+   build.json hash 五個 .cpp 與 binary，未含 headers／runner／compiler version，
+   對精確重建追溯不完整；binary 前後 hash 仍可固定本輪實際執行內容。
+
+8. SerialGuard 是共同 flock＋cu/tty lsof；busy 會 raise，並非工具自行等候自然完成。
+   仍需操作者外層協調等待，且不能阻止不合作的第三方另開埠。本輪已記錄每案 idle
+   guard，未見競爭／中斷證據。分析不改 guard，也未因這個一般限制否定原始觀察。
+
+9. 主代理另有 results/macos/session_state/primary_review.json 做格式／hash／guard
+   覆核。S04 analysis 子物件保留「No matching manifest」警告，是通用 analyzer 未自動
+   配到 manifest 的限制；外層 runner 及本分析已直接比對 command、exit、captured、
+   rows、hash。不能只引用子物件 PASS，也不需要把已核對成功案當成缺 exit 證據。
+
+九、優先改善與最小 A/B 建議（尚未實作／未啟動）
+
+優先1：保留 chunk60 作 macOS transport 基線，明確區分 session 狀態與失敗 phase。
+根據：60-byte 在多輪原版／probe 有成功，3840 第二窗已有多種負載失敗；不是60永不失敗。
+最小可審查變更：記錄 banner_wait、echo_wait、window_ack_wait、payload_write、
+frame_id／patch_index／patch_count、原始 RX、最後接受 TX；將 timeout 與 EOF／I/O error
+分開。不要更動 DeltaPlanner、pair、選矩形或 latest-frame 策略。
+
+優先2：對確認失效的會話加入有界恢復及 full 基準重建。
+根據：S02＋F兩cycle已證明同 fd、完整 banner→MSNCN exact echo→兩full 的可行路徑。
+設計約束：任何部分更新失败立即 invalidate 參考畫布；收到可辨識公告時標 session
+失效，不把公告當 ACK。仍由唯一 Session owner 處理 RX；同 fd 嚴格重新握手成功後，
+對最新影像強制一張 full，完成前不 commit 舊 delta 基準。重用既有 invalidate／full
+機制即可，不必改更新算法。保留首次失敗與恢復結果，有限次嘗試失敗就明確停止。
+不能盲目重送可能已部分消費的 payload，不能把一次 MSNCN write／banner 視為 ready。
+現有程式已在 send 例外時 connected_=false、在 main 失敗時 invalidate，但隨後退出；
+新增的是恢復流程，不是聲稱現有 flag 完全缺失。
+
+最小 A/B：固定 chunk60、同一full，分開比較舊流程与受控恢復流程，於約6秒無TX後
+看是否公告／是否 exact echo／重建full和下一窗是否成功；每個條件預先限定少量重複，
+交錯順序並保留失敗。這驗的是已知 idle path；3840 echo failure 不包含在已證明恢復範圍。
+更精確的5秒邊界可另選4.9／5.1／5.3秒附近少量樣本，不同時加入新節流或改ACK。
+若比較省電，passive RX 與完全無 IO 必須分組；真正 power/root cause 另需對應 trace。
+
+優先3：取得歷史 active midstream timeout 的 frame／patch 證據。
+根據：歷史成功／失敗交錯，僅看最後成功CSV不能定位失敗矩形，idle新資料不能補這段。
+保留相同 SHA 的未加 wrapper 原版做有界對照；另外用單獨診斷binary、固定容量記憶體
+ring 記錄前後 frame／patch、T/W/R、OS短寫及輸入丟棄事件，失敗後才 dump。
+不能在原版串列 fd 旁另開第二個讀取者。診斷成功不能消除原版失敗，觀察者效應必須報告。
+若追求完全不改原程序而觀察 wire，需要獨立 USB trace；它也不能以「另一程序搶讀serial」
+代替。先用有限的60 FPS重現＋45控制，不要求升到60以上，也不追測到碰巧成功。
+
+優先4：把3840的chunk／pacing／排空分成單變因。
+根據：兩次100／0ms幀間對照均失敗，且一秒間隔與小payload亦曾失敗。
+保持固定full與完整握手，先只有chunk60／3840作相鄰對照；另一組才在3840 payload
+內加入預先固定的小量節流，並觀察第二窗／延後公告／echo，不同時改 ACK、timeout 或內容。
+送後純等待、RX drain、主機輸出排空須各自獨立：RX drain 可能吞掉狀態訊息，必須保存
+並分類；tcdrain 類操作僅主機傳輸排空，仍不是 LCD 完成。固定有界预算，任何失敗保留。
+Android 的60B＋drain／約90ms推估等待、C#的390B＋寬鬆重試只能作候選，不能整套搬入
+後宣稱定位到chunk。S06已測的是100ms純等待，不等於測過所有drain或payload內節流。
+
+優先5：只有在需要減少startup replacement時，獨立比較擷取啟動時序。
+根據：首full成本＋單槽有足夠解釋力，且最新60成功0drop，無固定FPS門檻。
+可用「首full完成後才啟動定頻擷取」作單獨A/B候選，記完整 capture／queue 時戳；
+不要引入無限FIFO、刪除慢樣本或把startup改善當作ACK／3840修復。
+
+所有後續實機仍須依 AGENTS.md 由 GPT-6 Luna／medium 單一操作者持有 shared guard，
+先查 cu／tty；忙碌時等待自然完成。每輪完成後再交 GPT-6 Astra／Ultra 分析。
+上述為可審查建議，本文未授權自己開埠或啟動任何下一輪。
+
+十、可採用的目前對外結論
+
+macOS 的 moving/diff/pair 可在原算法下完成本輪60 FPS／60秒主機傳輸；45..60初掃
+沒有找到 ACK 失穩門檻。初始化 waiting-frame 取代與設備 ACK 故障必須分開。
+已重複觀察停止 TX 後約5.11秒收到MSN01，隨後舊Session開窗失敗；同fd嚴格重握手
+可恢復已測的idle事件。3840第二窗與重連echo仍有失敗，歷史active midstream ACK
+根因仍未定位。沒有足夠證據稱休眠是根因、3840已修復、60長期穩定或LCD實際60FPS。
+
+延伸參考限於已有存檔：docs/EXTERNAL_RESEARCH_20261010_zh-TW.txt。
+其中型號、USB FS、MCU、Android／C#方法是外部資料，不是手上實物、韌體或本輪
+wire trace 的直接驗證；本報告沒有以外部成功代替本地失敗或另做硬體假定。

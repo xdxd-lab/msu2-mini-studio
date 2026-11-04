@@ -1,0 +1,102 @@
+MSU2 Mini macOS ACK／傳輸區塊／重連排查（2026-10-10）
+
+範圍與版本
+前段實機操作由 GPT-6 Sol／high 執行，依使用者新設定，後續交接 GPT-6 Luna／high。
+主代理逐一核對原始 log、CSV、退出碼與要求幀數，統整結果及改善建議。
+沿用原 C++ v0.2 DeltaPlanner、pair 編碼與 latest-frame queue，未修改畫面更新演算法。
+原套件 CHECKSUMS.sha256 的 57 項再次全部符合；原版 native binary SHA256：
+4b64f7a3b542653ac843551cd0d7193adbb339c09ff64840e460e992307d960c
+串列埠 /dev/cu.usbmodem01234567891；單一代理依序操作，沒有 Flash/MCU 燒錄。
+診斷版只換成帶記憶體 ring 的 transport，結束才輸出最後 1200 個事件；
+它可能改變時序，因此不能把診斷版成功直接等同原版修復。
+
+已核對的原版 moving/diff/pair/keyframe0/chunk60 結果
+30 FPS／10秒：300/300，0掉幀，30.0911 host FPS。
+30 FPS／30秒：900/900，0掉幀，30.0291 host FPS。
+45 FPS／10秒：450/450，0掉幀，45.0761 host FPS。
+45 FPS／30秒目視輪：1350/1350，0掉幀，45.0230 host FPS。
+  首張 full host latency 36.3894ms；其餘1349張 mean 0.7998ms、P95 1.4354ms。
+  使用者確認「畫面正常，沒有明顯異常」。這只涵蓋指定目視輪。
+45 FPS／另一次30秒：1350/1350，0掉幀，45.0246 host FPS；沒有另外目視確認。
+60 FPS／3秒：captured180、sent179、初始等待幀取代1、exit0。
+60 FPS／10秒要求：只完成首張後下一 window ACK 逾時，exit1，無最終摘要。
+60 FPS／30秒A要求：完成1672次更新（frame_id 0、2..1672），ACK逾時，exit1。
+  最後每秒progress只顯示sent1632；最終已完成值應由CSV讀取，不能使用progress代替。
+60 FPS／30秒B：captured1800、sent1799、初始等待幀取代1、59.9915 host FPS、exit0。
+  成功與失敗交錯，尚不能稱60 FPS穩定。
+前一輪60 FPS另有完成496次更新後ACK逾時，保留為獨立失敗證據。
+
+重新連線的區別
+60 FPS的30秒A失敗後，新開45 FPS程序曾在
+MSNCN精確echo階段逾時，沒有CSV；它尚未進入畫面傳輸，應歸為重連失敗。
+此後獨立banner探針立即收到00 MSN01；另起45輪、60輪又能完成。
+Luna補做三個新程序的30 FPS／60張短輪，全都完成完整握手、60/60、0掉幀。
+三次之間沒有人工拔插；其中B、C之間穿插一輪timed60測試，並非三次緊接重開。
+這證明有成功恢復的路徑，並未排除既有偶發握手失敗。
+原Session必須先見MSN數字banner，再送MSNCN並驗完整echo。探針在無banner時
+可試同一MSNCN，但既有探針均在被動階段就看到banner，主動分支尚未驗證。
+不能由埠存在、單獨banner成功或一次重開成功，宣稱完整連線恢復。
+
+傳輸區塊對照：bars/full/pair/15 FPS、45張（除特別標示）
+54、60、120、126、180 bytes：各有完整45張成功的短輪。
+192、240、390、3840、3846 bytes：各在首張之後，下一window ACK逾時。
+3840降到1 FPS、要求3張仍僅完成1張；單純延長幀間隔到1秒無效。
+Luna另測solid/full/15 FPS／chunk3840：payload只有1200 bytes（加window共1218），
+仍在首張後下一window ACK逾時。首張window_ack=0.267417ms、payload_write=0.049041ms。
+因此問題不限於色條的大payload；仍不能由主機write成功推定設備完整接收。
+上述不是已證明的180-byte硬體上限，也不是已確認的64-byte封包／ZLP問題。
+
+3840精確trace
+首window於2.320ms被write接受，2.593ms收到完整02 03 07 00 00 00。
+payload總計33600 bytes，最後write在49.694ms返回；下一window在72.483ms被接受，
+之後2秒完全無RX，因此本例不是收到錯誤echo而被matcher拒絕。
+write返回僅證明macOS接受資料，沒有frame-complete回執或光學量測。
+底層::write曾只接受1024／768等短寫，但程式src+sent和續送offset正確；
+app的--chunk不等同實際USB封包或韌體接收邊界。目前證據偏向傳輸突發量／
+設備解析狀態的交互作用；尚不足以定位到macOS驅動或韌體特定缺陷。
+
+Luna後段60 FPS控制
+診斷版chunk60／30秒兩輪分別captured1800、sent1800／1799、初始等待幀取代0／1，
+均exit0，host FPS 60.0246／59.9954；未取得60 FPS失敗時的ring trace。
+原版chunk54／30秒captured1800、sent1799、初始取代1，59.9930 host FPS、exit0。
+chunk54只測一輪，不能宣稱它解決chunk60的偶發ACK timeout。
+成功輪沒有換ACK模式、增加timeout或改演算法。
+
+工作區工具改善（不改原演算法）
+- baseline加入moving_diff_45（450張），30/45/60各10秒，可逐案例重複執行。
+- 分析器在log缺最終摘要時仍保留完整CSV列的統計、最後frame_id及觀察到的drop累計；
+  持續標FAIL，不推算最終captured／host FPS，也不把完成前段當完整成功。
+- runner在每輪前後核對binary SHA256，避免測試途中換binary卻沿用同一版本標記。
+- 新增低干擾transport trace、已知埠握手探針與bounded單輪診斷記錄器。
+- 18項Python工具測試通過；診斷build script通過bash語法檢查，Python語法通過。
+  原C++未變，既有native core/delta/PTY及sanitizer成績沿用第一輪，不宣稱本輪重跑。
+
+建議與尚未完成工作
+1. 目前可用45 FPS + chunk60作macOS開發與算法比較的暫時基準；仍保留重連失敗
+   的處理，尚不是長時間穩定性或所有圖樣通過。30 FPS也保留為控制組。
+2. 不把3840當macOS已驗證預設，不用加大ACK timeout或降低ACK驗證來掩蓋問題。
+3. 下個最小修正實驗應限制在transport/session：分開驗證小寫入區塊、帶截止時間的
+   排空／節流與window前狀態，不一次混合多種延遲；保留原碼作A/B對照。
+   主機排空也不能當作LCD完成。多patch之間的突發不受來源FPS直接限制，需單獨觀察。
+4. 若host端紀錄仍不能分辨原因，下一步需對照USB／韌體側接收紀錄，確認大chunk
+   的實際封包、command重組及設備停在哪個步驟。目前未做USB bus capture或韌體debug。
+5. 先加明確失敗階段與frame／patch位置，再驗握手／重開流程。只有完整握手成功
+   才可開始新stream，沿用原planner的新連線首張full，不能延續失敗後的舊畫布假設。
+6. macOS的ACK、重連與較長soak未通過前，不以Rust重寫或Windows移植作為解法。
+
+證據位置
+完整逐輪統計、命令、hash與原始檔位置：
+  results/macos/ack_investigation_20261010/recordings.json
+精簡逐輪表：results/macos/ack_investigation_20261010/recordings.tsv
+Sol前段逐輪明細：docs/MACOS_HARDWARE_DIAGNOSTICS_20261010.txt
+45 FPS目視輪：results/macos/20261010T223935_052903+0800_diag_diff45_visual30s_09bea27b
+Luna後段交接明細：results/macos/hardware_luna_high_report.txt
+本輪彙總33次串流啟動記錄：22次完整、9次LCD response失敗、1次握手echo失敗；
+另1次為開埠前沙盒EPERM，未送資料，不列硬體失敗。獨立banner探針不計入此數。
+每個完整案例均由主代理核對CSV/log一致性、要求captured數與實際exit0。
+所有實機子程序已退出，兩名操作者交接／收尾的lsof都未列出持有該埠的程序。
+
+狀態
+本輪有界排查與45 FPS比較已完成；60 FPS偶發ACK與重連根因仍未定位，
+3840依然失敗，尚未修復或完成macOS全面驗收。沒有自動重試掩蓋失敗，
+沒有改寫正式C++／演算法；下一階段先做上述最小transport/session修正對照。

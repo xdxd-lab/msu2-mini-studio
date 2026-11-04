@@ -1,0 +1,35 @@
+MSU2 外部研究原始文件
+取得日期：2026-10-10，Asia/Taipei
+
+這兩份PDF由作者「墨砺」的公開Gitee文件庫下載，保留原內容供研究核對。
+未執行其中燒錄步驟；不代表重新建置或驗證過主控韌體。
+文件內印刷頁碼比PDF頁序少2，例如MINI硬體印刷頁13為PDF第15頁。
+
+MSU2_Series_Development_Guide_v1_10.pdf
+原名：使用及开发指南-MSU2系列可编程USB屏幕_20241102224357.pdf
+版本：v1.10 / 2024-11-02 / 24頁
+來源：https://gitee.com/mo-li-gong/msu2-series-usb-screen/blob/master/说明文档/使用及开发指南-MSU2系列可编程USB屏幕_20241102224357.pdf
+下載：將上列 /blob/ 換為 /raw/，HTTP重新導向至raw.giteeusercontent.com。
+SHA256：0b242b6e30b7907f52825df16ed9bc7a955e82cc1d807a2640148130ee85d185
+檢查：pypdf可完整開啟24頁；擷取相關章節；渲染檢視PDF第3、7、15頁。
+
+MSU2_LITE_Board_Guide_v1_00.pdf
+原名：使用说明书-朔月派RISC_V开发板.pdf
+版本：v1.00 / 2025-02-25 / 14頁
+來源：https://gitee.com/mo-li-gong/msu2-series-usb-screen/blob/master/说明文档/使用说明书-朔月派RISC_V开发板.pdf
+下載：將上列 /blob/ 換為 /raw/，HTTP重新導向至raw.giteeusercontent.com。
+SHA256：0c7c448e1061e3872222bd810b6ed5566e2a774b7a1ce2255c71a6d214e848b1
+檢查：pypdf可完整開啟14頁；擷取全文供查閱；渲染檢視PDF第4、7、10頁。
+
+Gitee倉庫頁當時顯示master為1b16befbe49e4345600f4f8b2490273ba5e091e7；
+文件頁標示上傳時間2026-05-17 12:49 +08:00。
+下載使用master，未以Git物件獨立核驗文件blob；可重現性以以上實際檔案hash為準。
+當時「电脑端软件」目錄僅見.keep，未取得可重新建置的官方MSU2主控程式專案。
+
+其他連結閱讀限制
+OSHWHub：透過搜尋索引讀到作者專案正文與附件名稱；直接HTTP請求回傳418。
+Bilibili：只取得作者、日期與影片簡介，未下載或觀看影片影音、未取得字幕。
+抖音：原始連結未提供可讀正文，未取得可驗證影片資訊。
+沒有以網頁標題或其他型號演示影片推定MINI實測FPS。
+
+研究整理：docs/EXTERNAL_RESEARCH_20261010_zh-TW.txt

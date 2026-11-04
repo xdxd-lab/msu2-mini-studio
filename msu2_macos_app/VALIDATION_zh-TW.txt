@@ -1,0 +1,77 @@
+MSU2 Mini Studio 0.1.0 驗證紀錄 — 2026-10-11
+
+交付
+macOS 13+、本機 Apple Silicon arm64、C++17 + Objective-C++ 原生程式。
+GUI: msu2_macos_app/build/MSU2 Mini Studio.app
+CLI: 上述.app/Contents/MacOS/msu2ctl
+建置 exit0，無警告；ad-hoc codesign --verify --deep --strict 通過。
+這不是公證的跨機型正式發行版。
+
+執行檔 SHA256
+GUI: 7ac3eabf80816468e558b11dd99908610f8f03c0013ad441fb90c7ce661b681d
+CLI: 09bf26acbd26eb4b9f349e7dadfe9670a49298c076408c634d4cbcbeed3b403c
+固定硬體 lifecycle driver: 594529d2006610dba1c3d5e9f1c39dc6094414bee86e5fde79faac0a96a5afb5
+固定 Flash 只讀 driver: da6b94094ec339e333a487de6a2cfb6398ed3dc72b58d16ed59928b89a3bd495
+
+離線測試（GPT-6.1 Sol xhigh 審查）
+scripts/test.sh 的7個執行檔全部 exit0：
+- protocol/image/session/latest-frame 核心（14883 assertions）
+- DeltaPlanner（3078677 assertions）
+- PriorityScheduler（299 assertions）
+- Flash 字節命令、驗證、取消、錯誤與完整讀回 fake Transport
+- Controller 生命週期、串流、暫停、握手／ACK分類、鎖釋放
+- Controller 邊界：等待來源時暫停、重連與暫停交錯、有界重連、閒置重新握手、
+  失敗CSV欄數、來源錯誤、備份失敗不擦除、寫入中取消、sector鄰頁異常偵測、page0
+- 原生 PNG 方向／透明背景／裁切尺寸、PPM、不存在圖片
+證據：build/test-evidence/offline-review-final.json
+分析：docs/OFFLINE_REVIEW.txt
+
+介面檢查
+三分頁：投射與串流、圖片燒錄、工作紀錄，--ui-smoke 全部 exit0。
+三張最終截圖位於 build/qa；可读、無控制項裁切。未觸發硬體或桌面權限。
+GUI smoke 不等同人工逐鍵 USB 驗收。
+
+目前硬體（GPT-6 Luna medium 執行；GPT-6 Astra ultra 全面分析）
+MSU2 Mini，使用者確認正常顯示模式。
+USB 名稱 CH32x035，VID:PID 1a86:fe0c，USB序號0123456789。
+埠 /dev/cu.usbmodem01234567891 及 /dev/tty.usbmodem01234567891。
+VID/PID及埠名與歷史紀錄一致；MSN banner=1。
+這些不是晶片物料或160×80尺寸自動查詢結果。
+
+最後固定版測試，使用者拔下約5秒再插入後：
+- 同一 Controller／同一背景序列擁有者 connect→bars單張→moving串流30FPS約5秒
+  →暫停→恢復→停止→閒置5.5秒→同fd嚴格重新握手→bars單張→中斷連線，exit0。
+- stream CSV共165列全部sent，165342 wire bytes。
+  2 full（初張、暫停恢復後）、121 bounding_box、40 tiles、2 runs。
+- 各階段報告握手失敗0、ACK逾時0、其他傳輸錯誤0；同fd閒置續握手1次。
+- dropped_total報告0，但暫停／恢復丟棄過時來源幀151；不得將0解讀為所有來源幀無損。
+- 前後bars各1張，因此整個lifecycle實際167次送圖；stream重新開始會清除其統計。
+- host_fps約29.935為恢復後片段統計，不是含暫停的整段FPS，亦非LCD可見刷新率。
+- 程序退出後額外等待6.006秒再啟動Flash只讀probe（兩run開始／結束紀錄間隔較長）。
+  嚴格握手及5個byte位址讀取全部通過；raw TX/RX確認只送握手與03 00讀取命令。
+  測試位址0、256、979456、1005056、1048575；沒有erase／commit／display指令。
+- 兩個測試的執行檔前後hash一致；每次物理run前檢查cu/tty，C++共用guard持鎖。
+  收尾兩埠沒有擁有者。
+
+重要保留
+早期『沒有序列埠』報告因未展開shell萬用字元而無效，已明確更正。
+在拔插前另有兩種初始握手失敗：一次無banner，一次有banner但缺MSNCN echo。
+其中第一批app smoke存在建置與測試重疊、hash不同，不能據此認證固定版。
+這些失敗未被最終成功覆蓋；手動重新插拔是最後成功輪的前置條件，未證明隨時重連皆可靠。
+本輪沒有LCD目視／光學量測、長時間耐久、真實桌面擷取串流或Flash擦除／寫入持久性驗證。
+桌面功能需要使用者授予本.app螢幕錄製權限後驗證；尚未量測多螢幕變更、HDR等情境。
+Flash只讀相容性已得到實機支持；erase／commit回覆格式、完整圖像讀回與相鄰頁保留
+仍僅有離線驗證。寫入必須在視窗確認具體圖片與頁範圍後執行，原素材可能改變。
+failed CSV列的區域累計欄目前為0占位，不能當成量測值；錯誤分類以events.log和總計為準。
+
+實機原始證據（相對專案根目錄）
+results/macos/app_development_20261011T182327+0800/
+  corrected_identity_assessment.txt、minimal_handshake.json、port_listing.json
+  app_smoke/                       早期分程序測試與hash限制
+  fixed_session/                   固定程序首次echo失敗
+  fixed_session/replug_lifecycle/   重插後完整成功及Flash只讀原始TX/RX
+  fixed_session/post_experiment_provenance.json
+  fixed_session/post_experiment_sections.json
+最後兩檔為測試後補存的source/object hash及重連結對照，非當時建置證明；重新連結的
+25個Mach-O載入section均與凍結driver相同，整檔UUID/link/debug metadata不完全相同。
+GUI/CLI/driver共用Controller物件檔，硬體結果指控制層流程，非GUI完整端到端人工驗收。

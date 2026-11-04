@@ -1,0 +1,1 @@
+.\msu2.exe stream --port COM3 --pattern moving --update diff --keyframe-ms 0 --fps 30 --frames 300 --csv v02_diff30.csv 2>&1 | Tee-Object -FilePath v02_diff30.log

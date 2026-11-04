@@ -1,0 +1,116 @@
+macOS 測試準備實際執行紀錄
+2026-10-10，Asia/Taipei
+
+已完成
+- 讀取「MSU2 Mini 前置調查討論」與關聯的前次雲端執行紀錄，確認 v0.2 CLI／CSV 定義。
+- 本機檢查：macOS 26.2 (25C56)，arm64，Apple Clang 21.0.0，Python 3.9.6。
+- 編譯與執行含 filesystem header 的 C++17 探針：成功，file 顯示 Mach-O arm64。
+- CMake 不在 PATH；本輪使用既有 bash/Clang 建置入口，因此無需安裝它。
+- 原始套件已複製到 MSU2_MINI_CPP_v0_2_20261010/msu2_cpp_v0_2，
+  工作區根目錄 msu2_cpp_v0_2 符號連結指向該資料夾。
+  CHECKSUMS.sha256 的 57 項全部符合；未宣稱核驗 ZIP 本身。
+- MSU2 C++ 已原生建置成功，build/msu2 為 Mach-O 64-bit executable arm64。
+- scripts/macos/run_offline.sh 已完成，包含原生建置、release core／delta／PTY、
+  ASan／UBSan core／delta 與 300 幀 diff-bench。結果目錄：
+  results/macos/20261010T220832_offline_9YljT7
+  completed.txt 已寫入完成標記。
+- release：14883 core assertions、3078677 delta assertions 全部通過。
+  PTY 包含分段握手、raw／pair、靜止跳過、週期 keyframe、慢 ACK 掉幀、
+  移動邊界重建、多矩形中途失敗、無 ACK／斷線等正負案例，全部通過。
+- ASan／UBSan：同樣 14883 core assertions 與 3078677 delta assertions 全部通過。
+  依 macOS 執行設定關閉 ASan leak detection；此處不宣稱完成洩漏檢測。
+- 離線 diff-bench 的 12 組結果與套件 docs/diff_benchmark_linux.csv 比對，
+  pattern、mode、frames、full_wire_bytes、diff_wire_bytes、saved_percent、
+  changed_pixels、transmitted_pixels、rectangles、unchanged_frames 等 10 欄完全相同。
+  兩個 prepare_ms_mean 欄位為平台執行時間，不要求相同，也不等同 LCD 效能。
+  moving／pair：full 9941472 bytes、diff 215730 bytes，編碼量減少 97.83%。
+- hardware baseline dry-run 成功生成 3 輪／9 案例與唯一 manifest，未開啟序列埠。
+- 新增 macOS 工具的 16 項 Python 單元測試全部通過，涵蓋 UTF-16 log、
+  靜止略過、週期全幅、截斷摘要、錯誤計數、
+  缺檔、manifest 幀數／exit status、dry-run 不開裝置、失敗停整輪、timeout 與 Ctrl+C。
+  兩份 shell script 的 bash -n 語法檢查通過。
+- Windows 歷史 v02_diff30 重新分析通過紀錄一致性檢查：300 列，215730 bytes，
+  334 rectangles；首張後 host latency mean 1.526667 ms、P95 2.104980 ms。
+  該歷史資料沒有 runner manifest，因此未能獨立核驗當時的 process exit code。
+
+PTY 紀錄說明
+release_tests.log 最末行保留原測試固定文字：
+  PASS POSIX CLI/PTY integration; physical hardware and Windows/macOS runtime were not exercised
+其中「macOS runtime were not exercised」屬原測試的過時文字：本輪確實使用
+native macOS arm64 binary 執行 PTY。實體硬體與 Windows runtime 未由此輪 PTY 驗證。
+PTY 通過代表收發及像素重建符合模擬規格，不能取代 USB driver 與真實 LCD 驗收。
+
+實機 smoke 嘗試
+實際埠為 /dev/cu.usbmodem01234567891；重新插拔後需要重新列舉。
+- 2026-10-10 22:09:20（Asia/Taipei）：沙盒內第一次開啟序列埠失敗，
+  error: open serial port ... Operation not permitted (errno 1)。
+  結果：results/macos/20261010T220920_741135+0800_80e92715/hardware
+- 2026-10-10 22:09:44（Asia/Taipei）：提升權限後已能開埠，第一案 bars_full_15
+  回報 response timeout (check exclusive port access, firmware and ACK mode)。
+  結果：results/macos/20261010T220944_347296+0800_9f1d6411/hardware
+  manifest 記錄 exit_code=1、status=failed、csv_exists=false；後續 moving 案 not_run。
+  依原碼控制流程，這次已讀到有效 MSN banner，但等待精確 MSNCN echo 逾時，
+  該輪尚未完成握手，沒有進入顯示更新階段。
+兩輪均保留 log／manifest；沒有建立可供效能分析的 stream CSV，不計為通過。
+
+後續診斷與參數限制
+- --chunk 3840 的後續多輪測試均已有首張完整 CSV 資料一列，再於第二個 window
+  等待 ACK 逾時。早期曾將其誤判為第一個 window 失敗，現已依 CSV／trace 更正。
+  代表性結果：results/macos/20261010T221139_519491+0800_6e8999d8/hardware。
+- 單張色條 trace 可成功；診斷用的取消 input flush、握手後延遲 100 ms 仍出現
+  完成第一張後第二個 window ACK 逾時，尚未確定根因。
+- 原 C++ 套件未修改。改用既有 --chunk 60 參數後，色條 smoke 45/45 成功，
+  但同輪下一程序沒有 MSN banner：
+  results/macos/20261010T221849_441704+0800_2a289822/hardware。
+  因此整輪仍是 failed，不能把第一案例通過當成整輪通過。
+- 案例間需手動拔插；拔插後首次偶爾仍有精確 MSNCN echo 逾時，人工重新啟動
+  才成功。runner 不自動重試或重連，保留所有失敗記錄。
+- 目前 --chunk 3840 未驗收；下列成功結果均使用 --chunk 60、每次單一案例、一次。
+
+已完成實機案例
+色條目視 30 秒：
+  results/macos/20261010T222145_880888+0800_36b39181
+  bars/full/pair，目標 15 FPS，450/450，0 waiting replacements，15.0142 host FPS。
+  bytes=15128100，full_frames=450；manifest completed、exit_code=0。
+  使用者目視確認：「色條完整且穩定」。
+moving/diff 30 FPS：
+  results/macos/20261010T222306_539151+0800_24063f6e
+  moving/diff/pair/keyframe=0，300/300，0 waiting replacements，30.0824 host FPS。
+  bytes=215730，1 full + 299 partial，rectangles=334；summary.json 記錄一致性 PASS。
+  首張 host latency=36.2391 ms；後續 299 張 mean=0.758974 ms、P50=0.675167 ms、
+  P95=1.389650 ms（線性插值）。host latency 不含 capture_ms，不等同光學延遲。
+  使用者目視確認：「移動正常，沒有明顯殘影或缺塊」。
+上述為個別案例的一次實測；host FPS 不是 LCD 可見刷新率，也不是整套 macOS 驗收完成。
+
+未通過實機案例：moving/diff 60 FPS
+  results/macos/20261010T222424_891967+0800_d6c9ba9a
+  moving/diff/pair/keyframe=0/chunk60，要求 600 張；中途 ACK timeout、exit_code=1。
+  CSV 共 496 列，frame_id 為 0、2 到 496；dropped_total 從第一列起就是 1，
+  表示初始化期間已有一張等待幀被取代。只可確認完成 496 次更新。
+  沒有最終摘要，無法宣稱總共 captured=600，亦不是「599 張成功」。
+  summary.json 正確判定 FAIL：Expected exactly one final log summary; found 0。
+  使用者當時觀察「畫面正常，沒有明顯異常」僅限中途顯示，不改變本輪驗收 FAIL。
+  60 FPS 待修復與重驗；本輪停止往 extended／soak 自動推進。
+
+未完成與原因
+- diff60 已實測但中途 ACK 逾時，待修與重驗。
+- 完整 baseline 三輪及 moving/full 30 FPS 對照尚未完成。
+- extended 靜止／keyframe／高變動／raw、soak、人工中斷及睡眠喚醒尚未完成。
+- 重開程序後無 banner、拔插後偶發 MSNCN echo 逾時、chunk3840 第二個 window
+  ACK 逾時的原因仍待排查；尚未驗證可靠重連與長時間穩定性。
+- macOS 桌面擷取：原 v0.2 未支援，不列入本輪完成宣稱。
+正式原始 C++ 與演算法未修改；臨時診斷 candidate 僅存於 ignored results。
+本輪停止實機擴測，保留 chunk60 色條／diff30 通過與 diff60 失敗的證據，
+輸送及重連問題留待後續研究與重驗。
+
+USB 觀察
+早期只讀列舉曾看到 CH32x035 (VID 0x1a86、PID 0xfe0c) 與
+/dev/cu.usbmodem01234567891；曾短暫未列出，後續實機 smoke 時已重新出現。
+裝置列舉不是成功握手證據；最新完整握手狀態以上述實機紀錄為準。
+結構化 ioreg 查詢受限，提升權限要求已被拒絕；未重試該項操作。
+preflight 現在預設只列序列埠，USB 詳細資訊須使用者自行選擇 --usb-details。
+
+後續執行
+詳見 README_zh-TW.txt 與 MACOS_TEST_PLAN_zh-TW.txt。
+MSU2 原生建置與離線測試、chunk60 色條與 diff30 個別實機案例已完成；
+diff60 未通過，其餘矩陣仍待執行。下一步先排查 ACK 與重連，不宣稱 macOS 全面驗收完成。

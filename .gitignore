@@ -1,0 +1,35 @@
+results/
+__pycache__/
+*.pyc
+.DS_Store
+msu2_macos_app/build/
+msu2_cpp_v0_2/build/
+msu2_cpp_v0_2/tests/.build/
+MSU2_MINI_CPP_v0_2_20261010/msu2_cpp_v0_2/build/
+MSU2_MINI_CPP_v0_2_20261010/msu2_cpp_v0_2/tests/.build/
+
+# Local experiment evidence, packaged apps and generated build products.
+dist/
+**/build/
+**/.build/
+*.app/
+*.dSYM/
+*.o
+
+# Downloaded reference binaries and generated design artifacts remain local.
+reference/**/*.pdf
+reference/windows_v02/*.csv
+reference/windows_v02/*.log
+output/
+MSU2_MINI_CPP_v0_2_20261010/*.zip
+MSU2_MINI_CPP_v0_2_20261010/**/*.log
+MSU2_MINI_CPP_v0_2_20261010/**/*.csv
+MSU2_MINI_CPP_v0_2_20261010/msu2_cpp_v0_2/bin/
+MSU2_MINI_CPP_v0_2_20261010/msu2_cpp_v0_2/examples/*.commands.bin
+
+# Local credentials and editor state must not enter source history.
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/

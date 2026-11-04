@@ -1,0 +1,51 @@
+MSU2 Mini Studio 離線功能審查
+2026-10-11｜僅讀程式、使用 fake Transport/source 與本機圖片；未列舉或存取序列埠。
+
+結論
+目前 7 個離線測試執行檔全部通過，scripts/test.sh exit status=0。
+控制器的連線、單張、串流、暫停、停止、重連與素材燒錄流程已有功能測試；
+結果不能代替 USB、LCD 或實體 Flash 驗證，也不能用 mock FPS 宣稱硬體效能。
+
+已發現並由主代理修正、完成回歸的問題
+1. consumer 等待下一張時暫停，原先 UI 不會出現 paused，因而不能正常繼續。
+   現在立即同步暫停狀態，resume generation 使舊影格與差分參考失效。
+2. 暫停遇到 ACK 失敗後再握手成功，原先重連會清除 UI paused。
+   gate 測試重現後已修正；恢復傳送仍由使用者的「繼續」操作觸發。
+3. 每次重連成功就重置重試額度，原先可能永遠重複握手成功／ACK 失敗。
+   現在同一次串流最多 3 次 recovery，額度耗盡釋放連線與 lease。
+4. ACK 失敗的 CSV 原先只有 11 欄；現在與 header 同為 22 欄。
+5. page0 前方的空相鄰範圍原先可能觸發零長度 read 驗證錯誤；已回歸通過。
+
+功能證據
+• Session/Transport 固定由單一 worker 使用；成功停止保留 lease，中斷與不確定
+  傳輸則釋放；來源擷取 exception 會結束 producer，保留可再次使用的乾淨連線。
+• ACK timeout、handshake failure 與 transport error 分開計數；成功重連後第一張
+  建立完整 160×80 參考，避免沿用未確認的部分畫面。
+• 超過 4.5 秒的閒置／暫停復用同一 fd 時，先等有效 MSN banner，才傳 MSNCN。
+  缺 banner 時零 protocol TX，僅增加 handshake failure；正常 resume 傳完整畫面。
+  4.5 秒是應用程式保守門檻，本報告未證明實體韌體有相同 timeout 常數。
+• C++ guard 的 SHA-256 前 20 位 key 與既有 Python guard 相同，cu/tty alias 共用。
+  程式審查確認先取得 flock 再查兩個 alias 的 owner；本測試未執行實體 lsof。
+• Flash 範圍先驗證、確認圖像固定、完整 sector envelope 先備份與存檔。
+  備份讀取失敗、備份檔存檔失敗及備份中 disconnect 均未送出 erase/commit。
+• commit 中 disconnect 只完成在途的一頁，記錄 pages_written=1/cancelled=1，
+  不繼續後續頁。正常素材寫入 100 頁後比對全部像素與 envelope 相鄰 bytes。
+• 模擬整個實體 sector 擦除會損毀相鄰資料；控制器正確偵測，保存原備份並停止。
+  這證明事後檢查有作用，不證明真實韌體保留鄰頁，也沒有自動還原功能。
+• PNG 上下方向、透明底合成、160×80 裁切、PPM 往返與缺檔錯誤通過；
+  core/delta/priority 既有演算法測試保持通過。
+
+剩餘限制
+failed CSV 列的區域診斷欄目前以 0 佔位；須依 outcome=failed 判讀，不能把那些
+零值當作區域累計實測值。成功列保有正常計數。LCD 實際更新率、USB 排空、
+Flash 回應 framing、實際擦除粒度、外部 Flash 身分及斷電保留均需實體證據。
+
+可重跑與追溯
+  bash msu2_macos_app/scripts/build.sh
+  bash msu2_macos_app/scripts/test.sh
+完整命令、exit status、stdout/stderr、測試執行檔 SHA-256：
+  build/test-evidence/offline-review-final.json
+逐次 Controller events、stream CSV、Flash manifest/backup/intended：
+  build/test-evidence/<timestamp_pid_instance>/
+新增 regression：tests/test_controller_edges.cpp；實際序列埠測試不在 test.sh 內。
+初期問題重現保留於 offline-review-expanded.json；修正後以 final.json 為準。

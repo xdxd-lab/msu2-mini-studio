@@ -1,0 +1,287 @@
+{
+  "release": "0.2.0",
+  "date": "2026-10-10",
+  "scope": "All packaged payload files except this index and CHECKSUMS.sha256",
+  "files": [
+    {
+      "path": "CMakeLists.txt",
+      "bytes": 1164,
+      "sha256": "c6bbb8d3f95c6e4215f7f18acb843a4a3cf118a65ebf864dd8e2194f70992b7d"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 1089,
+      "sha256": "98bbc2954c243515a67dfa1b487e9a09733f934ed4c50fbb206f7b0850eb7469"
+    },
+    {
+      "path": "README_zh-TW.txt",
+      "bytes": 8384,
+      "sha256": "07278beed32bb0d4c3f982cef114c33e7783c687e853e9652be7c450aef3c179"
+    },
+    {
+      "path": "bin/linux-x64/msu2",
+      "bytes": 179504,
+      "sha256": "2764cd3a501900f6b27c37c0d2e64faf73da9d3d9534331901562d0cd60ac12d"
+    },
+    {
+      "path": "bin/windows-x64/msu2.exe",
+      "bytes": 1773568,
+      "sha256": "54e0ddbdab37de1fe0ac424cf8e9319a7dbb3bc7acaba0d5d16c992cd7dd802d"
+    },
+    {
+      "path": "docs/BASELINE_TEST_REPORT_v0_1.txt",
+      "bytes": 5808,
+      "sha256": "34d87c55f34d6874b8565f8cdd5738fb1dd939ae18d4a5e2e741a9e911e0bb3e"
+    },
+    {
+      "path": "docs/PROTOCOL.txt",
+      "bytes": 3199,
+      "sha256": "abb0725aaa48e89f6e61185e8bbd4dd08477db47da14c06cf8c03150c497c3cd"
+    },
+    {
+      "path": "docs/TEST_REPORT_zh-TW.txt",
+      "bytes": 5679,
+      "sha256": "4b09f6ed5e8c933a44a8470eea00e6913edc2d19ec886001c343e7596e8683d1"
+    },
+    {
+      "path": "docs/baseline_v0_1_cpu.csv",
+      "bytes": 1045,
+      "sha256": "e59dc5b3683d56a04ea1a1d58fbcc3fbc7bd32f5b47f6d35321f121bd6fa1e2f"
+    },
+    {
+      "path": "docs/diff_benchmark_linux.csv",
+      "bytes": 1086,
+      "sha256": "c47d1989cbea425ef3ddb7b68a1e7268594f232661cf95b5e873cb543270c405"
+    },
+    {
+      "path": "docs/runtime_licenses/COPYING",
+      "bytes": 2326,
+      "sha256": "99a69660981156c21336fdb5661f89341b013c94e4bf9e1c7467b4745718397f"
+    },
+    {
+      "path": "docs/runtime_licenses/COPYING.MinGW-w64-runtime.txt",
+      "bytes": 12155,
+      "sha256": "1db8da07b436c68833c0673ffee3d9fcb2526047f3820b81661865dfedc79a1f"
+    },
+    {
+      "path": "docs/runtime_licenses/COPYING.MinGW-w64.txt",
+      "bytes": 5905,
+      "sha256": "f38e6194bd3bfa1b654f118e5acefe0aead437bbe669eee43957ccc65a7127f1"
+    },
+    {
+      "path": "docs/runtime_licenses/COPYING.winpthreads.txt",
+      "bytes": 2883,
+      "sha256": "63263614cdd29f2f93cba85e992f041b31f9fc7b4033692f31269489a8a1b177"
+    },
+    {
+      "path": "docs/runtime_licenses/COPYING.winstorecompat.txt",
+      "bytes": 1099,
+      "sha256": "fa7368d1f93d890c173177475d8ec7aff265a7d08f1f364d66f74d138978ce36"
+    },
+    {
+      "path": "docs/runtime_licenses/LLVM-LICENSE.TXT",
+      "bytes": 15141,
+      "sha256": "8d85c1057d742e597985c7d4e6320b015a9139385cff4cbae06ffc0ebe89afee"
+    },
+    {
+      "path": "examples/bars.pair.commands.bin",
+      "bytes": 33618,
+      "sha256": "1758c18dd680b6385d0ecaa304eaa4957c519cba740838d8066dbf28a5d91c55"
+    },
+    {
+      "path": "examples/bars.ppm",
+      "bytes": 38414,
+      "sha256": "4992f805d8fc7c93b2f20d3e46b998afa44e0a08a34325395769c9fdfea4903c"
+    },
+    {
+      "path": "examples/bars.raw.commands.bin",
+      "bytes": 39018,
+      "sha256": "57de8932ebce0b814e7d598ff81f311358be6ac2463fd2ee2ba23aaefc97f15c"
+    },
+    {
+      "path": "examples/checker.pair.commands.bin",
+      "bytes": 20418,
+      "sha256": "abd058e9d192f0b784cb58cc7b3371f36471f3fff54f231bc42df623276a479c"
+    },
+    {
+      "path": "examples/checker.ppm",
+      "bytes": 38414,
+      "sha256": "d43a6a32919291f3cfe0b466b4320149bfb394d9966e328e7f28fe00821a3dc8"
+    },
+    {
+      "path": "examples/checker.raw.commands.bin",
+      "bytes": 39018,
+      "sha256": "e04593de5c6fdfbe5f426ab65298a88e7c601fbf310007ad487946700a7ee0e0"
+    },
+    {
+      "path": "examples/gradient.pair.commands.bin",
+      "bytes": 38418,
+      "sha256": "550665679fb4b2c2fd8e88b85ce4a4a0e6490f91124510c81891bb06db8bfb3e"
+    },
+    {
+      "path": "examples/gradient.ppm",
+      "bytes": 38414,
+      "sha256": "29d75491a0f314195dd744355c1c0c0ae506406057f4ee448285a20e829f5b09"
+    },
+    {
+      "path": "examples/gradient.raw.commands.bin",
+      "bytes": 39018,
+      "sha256": "52f385563418f9fb884e8ab1610b7f4dc8961afe15cd56039dda2a580ca993f6"
+    },
+    {
+      "path": "examples/moving.pair.commands.bin",
+      "bytes": 32970,
+      "sha256": "735165150f27dcc1f8a43b0337875a9016a02fc3f3922f4169c388c3f7be8e20"
+    },
+    {
+      "path": "examples/moving.ppm",
+      "bytes": 38414,
+      "sha256": "93ed5fc2ea4ef655de0b67cc3cb28ac8688d3e4c581921056d1777b3e29023c6"
+    },
+    {
+      "path": "examples/moving.raw.commands.bin",
+      "bytes": 39018,
+      "sha256": "0ba023825629065e6238411bd514de201a6532f4a433cc800d21be267fdcf9a0"
+    },
+    {
+      "path": "examples/noise.pair.commands.bin",
+      "bytes": 39018,
+      "sha256": "c8fdcc41c609afd96cacb52e2d2c7b75481b08be377fdbc68d8174ea7da37f6b"
+    },
+    {
+      "path": "examples/noise.ppm",
+      "bytes": 38414,
+      "sha256": "82c810cc581c0777976388f5409b494a28197bf20de440e7d1c68693c2bf95ed"
+    },
+    {
+      "path": "examples/noise.raw.commands.bin",
+      "bytes": 39018,
+      "sha256": "d940543da7d3f01860e01454aad01081be69aa3115469a40361a005e3f85b9b3"
+    },
+    {
+      "path": "examples/solid.pair.commands.bin",
+      "bytes": 1218,
+      "sha256": "28088141a6e40418117554ee702f52a1c5bfe7f0a77d33e440251fb3aedf7e2a"
+    },
+    {
+      "path": "examples/solid.ppm",
+      "bytes": 38414,
+      "sha256": "5eb3d3fbed319dae4591fb0b288c0b8e752481bbd5120d873a0a250a9f868073"
+    },
+    {
+      "path": "examples/solid.raw.commands.bin",
+      "bytes": 39018,
+      "sha256": "cb1fd18eeb6c29cd3d117e0e33e1510badb5f4b4ca5d2eb408989798452e64fc"
+    },
+    {
+      "path": "include/msu2/capture.hpp",
+      "bytes": 499,
+      "sha256": "245c797c0ea6060af3bf25eab039a664a32df9c3d995b285c77dd80d57595a5e"
+    },
+    {
+      "path": "include/msu2/delta.hpp",
+      "bytes": 1231,
+      "sha256": "97d53797f510eaf2b815ea29011a3a5675f2dbeb96406adf70fd7d84835318eb"
+    },
+    {
+      "path": "include/msu2/image.hpp",
+      "bytes": 504,
+      "sha256": "07cfabf4c768622381a2ef44fa006e8d213383cc312a08ef190fa988ca20690d"
+    },
+    {
+      "path": "include/msu2/latest.hpp",
+      "bytes": 1314,
+      "sha256": "c9681c712e2d07d86fc2544f75de7ca486473f6b2c66865a3964c79827a165e4"
+    },
+    {
+      "path": "include/msu2/protocol.hpp",
+      "bytes": 861,
+      "sha256": "8664bb5280245176f14714b8d150a713516d4004cfa1f99185e14122a24e23fa"
+    },
+    {
+      "path": "include/msu2/session.hpp",
+      "bytes": 1240,
+      "sha256": "ce80fe21a7f1f7a2de991584f1555d821bdc364f6cd7731b456eeb98b7525de0"
+    },
+    {
+      "path": "include/msu2/transport.hpp",
+      "bytes": 1462,
+      "sha256": "b9da2376af4b7f2308897c101a586344e83e7fac9d2f037e11f0c133d8478323"
+    },
+    {
+      "path": "scripts/build.sh",
+      "bytes": 309,
+      "sha256": "b88d3a2ad98c4792c12a0277e80d74f180ce3ac322a03bed904d60594a515fda"
+    },
+    {
+      "path": "scripts/build_windows.ps1",
+      "bytes": 207,
+      "sha256": "5bb8053219ed5e7190286a53c0500d7d6c72d1d4835bf0b15c82d1fbe9f3f0bc"
+    },
+    {
+      "path": "src/capture.cpp",
+      "bytes": 7206,
+      "sha256": "27ab45ada91363926b9e03cef20a969b408986f518ee4d33a41008c3480370fe"
+    },
+    {
+      "path": "src/delta.cpp",
+      "bytes": 7523,
+      "sha256": "74882190d1fcab2f9dc25982650a903e1efbda16d552f2830ab40911b4818e4e"
+    },
+    {
+      "path": "src/image.cpp",
+      "bytes": 6322,
+      "sha256": "666693cabdbd2380140e43d84cfbba5ff0420bc044e240871cb23c4112c8efd6"
+    },
+    {
+      "path": "src/main.cpp",
+      "bytes": 21603,
+      "sha256": "95ab83126fd9a1d633ea75bf953bd3d4a58e4ab50d3e427f0601a14b7686908c"
+    },
+    {
+      "path": "src/protocol.cpp",
+      "bytes": 3261,
+      "sha256": "73c5b2c3f42476d5dc1d1c62d7b080023b9a931eef6a76bbd43a1ad5782be9c4"
+    },
+    {
+      "path": "src/session.cpp",
+      "bytes": 5350,
+      "sha256": "c55978585b023dcef5b1e7f5b11bc47f7d159ffb2cb128da8ea345e7babee6fc"
+    },
+    {
+      "path": "src/transport.cpp",
+      "bytes": 17599,
+      "sha256": "5c176b345ae84eba04d352ec46434a4c1c157d27405aa2e605e330f8f701df3a"
+    },
+    {
+      "path": "tests/TEST_RESULTS_61_XHIGH.txt",
+      "bytes": 7791,
+      "sha256": "8eab4331bfdcdc6bf23f70c258c66c20d744245c07bd00fc57c490bb507afcc2"
+    },
+    {
+      "path": "tests/integration_pty.py",
+      "bytes": 33031,
+      "sha256": "cd94b7725b761ff495c7784c1c18354317ed21786b3e3a03cbd02601e54642b2"
+    },
+    {
+      "path": "tests/run_tests.sh",
+      "bytes": 1151,
+      "sha256": "ae55fbe366661ea28f68afdf4688728539e046738d5c333a57e0f558c1983265"
+    },
+    {
+      "path": "tests/test_core.cpp",
+      "bytes": 23637,
+      "sha256": "e378cf3525196a022bd3665e93930717c11732a5c3a25e07b78d9239f85bb3c6"
+    },
+    {
+      "path": "tests/test_delta.cpp",
+      "bytes": 12895,
+      "sha256": "da6c87e1807a232d772a42f4d801d433505c3355d32fcb136ad5286fe6111ff3"
+    },
+    {
+      "path": "tests/windows_imports.txt",
+      "bytes": 10371,
+      "sha256": "2bfa613161e08879931645bf24a76cdaa97f1aa0da50050964eefaa374a7fdce"
+    }
+  ]
+}

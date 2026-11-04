@@ -1,0 +1,94 @@
+MSU2 Mini macOS 實機傳輸診斷補記（2026-10-10，Asia/Taipei）
+
+範圍與版本
+- 只開已辨識的 /dev/cu.usbmodem01234567891，僅既有 MSN 握手及 LCD 顯示流；沒有 Flash/MCU 寫入。
+- 原版 build/msu2 SHA256:
+  4b64f7a3b542653ac843551cd0d7193adbb339c09ff64840e460e992307d960c
+- 診斷版 msu2_timed SHA256:
+  b3cc75ff5d8dbac26cd4fed415e2f7319c9985532d65f07eedc04d7f21aa31ae
+  它只以 tests/macos/transport_timed.cpp 取代原 transport.cpp，使用固定 ring buffer
+  記錄實際 read/write、時間和前六個位元組，程序結束後才印最後1200筆。
+  可用 scripts/macos/build_timed_diagnostic.sh 重建；原src與畫面更新演算法未修改。
+- tests/macos/hardware_diagnostics.cpp 只等 banner，若無 banner 才送既有 MSNCN
+  並要求精確 echo。連續兩次重開均立即取得 00 MSN01 banner，因此本輪未觸發其
+  主動 MSNCN 分支；不能據此宣稱無 banner 時的主動重連可行。
+- 腳本 scripts/macos/run_stream_diagnostic.py 每輪建立唯一結果目錄，保存參數、
+  binary hash、開始/結束時間、退出碼、CSV、log。正式 runner 的目錄則有 manifest。
+
+30/45/60 FPS，moving/diff/pair/keyframe0/chunk60
+- 原版30 FPS，10秒，300/300，0 drops，215730 B，30.0911 host FPS，PASS：
+  results/macos/20261010T223522_384625+0800_467f0dfa
+- 原版45 FPS，10秒，450/450，0 drops，306222 B，45.0761 host FPS，PASS：
+  results/macos/20261010T223540_728517+0800_91648f3b
+- 原版60 FPS，10秒要求，精確握手與首張成功後第二window ACK timeout，
+  CSV只有1筆，exit 1，FAIL：
+  results/macos/20261010T223559_194768+0800_1e9a8d4b
+- 診斷版60 FPS，3秒，180/180，0 drops，exit 0：
+  results/macos/20261010T223624_206946+0800_diag_timed60_afterfail_eb5cb5b5
+- 診斷版60 FPS，10秒，600/600，0 drops，397770 B，60.0797 host FPS，exit 0：
+  results/macos/20261010T223633_760620+0800_diag_timed60_10s_b080a598
+- 原版45 FPS，30秒，1350/1350，0 drops，851940 B，45.0230 host FPS，
+  1 full + 1349 partial，exit 0，CSV/log一致性PASS；使用者目視回覆
+  「畫面正常，沒有明顯異常」，僅適用此輪：
+  results/macos/20261010T223935_052903+0800_diag_diff45_visual30s_09bea27b
+  此獨立launcher無runner manifest；metadata.json另記指定幀數及實際exit 0。
+- 原版30 FPS，30秒，900/900，0 drops，579270 B，30.0291 host FPS，exit0：
+  results/macos/20261010T224114_901024+0800_diag_diff30_repeat30s_8b102df7
+- 原版60 FPS，30秒要求，在frame_id1672完成後ACK timeout，CSV共1672筆
+  （id 0、2..1672，初始drop1），exit1；最新每秒log停在sent1632但並非
+  最後完成值：
+  results/macos/20261010T224153_082016+0800_diag_diff60_repeat30s_a_9eef2420
+- 緊接上一失敗後，原版45 FPS/30秒新程序在握手echo等待中逾時，沒有CSV，
+  exit1；這是重連失敗，不能歸因於45 FPS畫面傳輸：
+  results/macos/20261010T224234_848635+0800_diag_diff45_repeat30s_b_76fb2fe8
+  之後獨立banner診斷重新開埠立即見到 00 MSN01，未觸發主動MSNCN。
+- 再次獨立45 FPS/30秒，1350/1350，0 drops，851940 B，45.0246 host FPS，
+  exit0；此輪無使用者目視：
+  results/macos/20261010T224300_875468+0800_diag_diff45_repeat30s_c_7fe677e3
+- 再次獨立60 FPS/30秒，1800 captured、1799 sent、初始drop1，1124976 B，
+  59.9915 host FPS，exit0；此輪無使用者目視：
+  results/macos/20261010T224335_672265+0800_diag_diff60_repeat30s_b_79767cbe
+
+全幅 bars/full/pair/15 FPS，45張（除註明）chunk 對照
+- chunk3840，診斷版，首張完成後第二window無ACK，exit1：
+  results/macos/20261010T223700_219627+0800_diag_timed3840_bars_7810749a
+- chunk3846，診斷版，同樣FAIL：
+  results/macos/20261010T223715_048361+0800_diag_timed3846_bars_cc3da859
+- chunk390，診斷版，同樣FAIL：
+  results/macos/20261010T223722_932612+0800_diag_timed390_bars_b07396f9
+- chunk60，診斷版，45/45 PASS：
+  results/macos/20261010T223736_754946+0800_diag_timed60_bars_control_74397faa
+- chunk120，原版，45/45 PASS：
+  results/macos/20261010T223754_092517+0800_diag_bars120_threshold_03f4da58
+- chunk240，原版，首張後第二window timeout，exit1：
+  results/macos/20261010T223802_418226+0800_diag_bars240_threshold_e6b3ac01
+- chunk180，原版，45/45 PASS：
+  results/macos/20261010T223810_087860+0800_diag_bars180_threshold_c63784ca
+- chunk192，原版，首張後第二window timeout，exit1：
+  results/macos/20261010T223818_904069+0800_diag_bars192_threshold_e6513a05
+- chunk3840、1 FPS、3張要求，原版首張成功、第二window timeout，exit1：
+  results/macos/20261010T223832_624034+0800_diag_bars3840_1fps_e9395c92
+- chunk126，原版，45/45 PASS：
+  results/macos/20261010T223844_374620+0800_diag_bars126_threshold_708fbdef
+- chunk54，原版，45/45 PASS：
+  results/macos/20261010T223853_470234+0800_diag_bars54_control_b56f7284
+
+關鍵trace與判讀
+chunk3840 首window在約2.320ms write(18B)，2.593ms 收到精確
+02 03 07 00 00 00。33600B payload最後一次實際write在49.694ms完成；
+第二window在72.483ms write(18B)，之後2秒完全沒有收到位元組。
+macOS底層對3840B呼叫多次只接受1024/768等長度，故app chunk尺寸不等同
+單次USB packet或韌體收到的命令邊界。1 FPS仍失敗，單純增加幀間隔不足。
+180B PASS、192B FAIL是目前案例中的界限，並非已驗證的普遍硬體上限。
+60 FPS一次原版在第二window失敗，另一次診斷版600/600 PASS，故間歇性
+ACK問題尚未定位，不能以一輪PASS宣稱修復。host_send_fps不代表LCD可見FPS。
+
+交接狀態
+使用者要求後續硬體測試由 GPT-6 Luna 高接手。本操作者在已啟動60b輪
+自然結束後停止所有USB操作。60b子程序exit0；隨後只讀的 lsof
+/dev/cu.usbmodem01234567891 未列出持有程序（exit1、空輸出）。
+待接手：診斷版timed60 30秒以捕捉失敗時實際RX內容；solid/full/chunk3840
+的小payload對照；無人工拔插連續3次重新開埠的握手與送圖驗證；若原版60
+再次timeout，可做chunk54/60 FPS/30秒控制。保留每次exit及完整失敗紀錄，
+不以自動重試掩蓋故障。需注意現有 trace ring 結尾只印最後1200筆；
+若失敗在上一幀有兩個patch，最後window前所有ACK與payload write都要對齊。

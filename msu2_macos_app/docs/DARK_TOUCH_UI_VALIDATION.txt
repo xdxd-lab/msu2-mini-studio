@@ -1,0 +1,67 @@
+MSU2 Mini Studio 0.2.0 — 深色觸控介面驗證
+日期：2026-10-12；macOS arm64；最低支援 macOS 13。
+
+完成範圍
+依 output/design/msu2-mini-studio-dark-touch-v1.png 與同目錄 zh-TW handoff 實作。
+原生 AppKit + C++17，預設深色125%，可記憶100／125／150%。
+主要控制項60／75／90pt；窄視窗直排與捲動，底部操作保持可見。
+保留圖片素材Flash、桌面投射及串流控制；FPS可編輯、進階設定可折疊。
+預覽2:1直角、最近鄰、整數倍率；框線在來源矩形外。
+依RGB565邊緣對比選深／淺／雙色框，3:1門檻與250ms穩定期。
+
+最終GUI驗證
+命令：MSU2MiniStudio --ui-smoke --ui-matrix msu2_macos_app/build/dark-ui-qa
+       --log-root msu2_macos_app/build/dark-ui-qa/logs
+exit 0；18個UI_CASE_OK與UI_MATRIX_OK。同一程序切換縮放、視窗大小與頁面。
+18案例涵蓋100／125／150%、800×700窄視窗、投射／Flash／工作紀錄、
+黑／白／上下和左右混合／色條／細邊緣，以及未連線、連線中、待機、啟動、
+串流、暫停、停止、錯誤狀態。操作啟用規則與暫停／繼續文字符合狀態。
+全部footerVisible及payloadUnchanged為true；有預覽的17案例完整內容
+renderedImageUnchanged與geometryUnchanged均true，differentPixels=0。
+歷史頁無預覽，該項不測，沒有以null當作通過。
+GUI執行檔SHA256：2ae87929a942212a4fe8ae2fd404b3a5be6bf00e4eeeb927b631017b3d72f792
+最終摘要、逐案PNG／JSON：build/dark-ui-qa/gui_matrix_result.json及final_*。
+
+離線功能驗證
+bash msu2_macos_app/scripts/test.sh，exit 0。
+Flash fake transport、控制器生命週期／暫停／重連／鎖釋放／錯誤分類、
+圖片方向／透明合成／裁切／PPM、RGB565對比／遲滯／資料不變均通過。
+Core14,883、delta3,078,677、priority299個斷言通過。
+新增慢來源計數測試：capture_slots_missed=8，waiting_frames_replaced=0。
+閘控傳送測試：capture_slots_missed=0，waiting_frames_replaced=5，observed_gaps=5。
+三種計數描述不同階段，不能相加成總掉幀率。
+證據：build/dark-ui-qa/offline_result.json（保留當時測試輸入及執行檔hash）。
+後續只修改GUI與驗證截圖，不重跑未變更的傳輸測試。
+
+缺陷處理與覆核
+原縮放拆除NSScrollView時觸發Auto Layout例外，現已改為原地縮放，
+保留同一控制項、圖片與工作紀錄。原失敗trace及取樣均保留。
+125%截圖便利API的兩次點陣尺寸相差一列；獨立分析完整640×320圖片
+204,800像素全部相同，差異只在外框。最終比較使用固定相同尺寸點陣，
+凍結擷取矩形並確認前後布局相同，完整內容再次通過。
+GPT-6.1 Sol xhigh覆核離線結果與18案例；GPT-6 Astra ultra分析例外與點陣差異。
+報告：docs/DARK_TOUCH_UI_REVIEW.txt、docs/GUI_REBUILD_HANG_ANALYSIS.txt、
+      docs/GUI_RASTER_125_ANALYSIS.txt。
+
+核心保留與範圍限制
+platform.mm、flash.cpp及msu2_linux_v0_3的所有既有來源hash與更新前相同。
+controller.cpp僅增加來源時槽遺失／等待影格取代統計；傳送更新流程不改寫。
+依據：build/dark-ui-qa/before_source_hashes.json與after_source_hashes.json。
+本輪沒有開啟序列埠、沒有桌面擷取、沒有Flash擦除／寫入。
+既有0.1.0實機證據仍在VALIDATION_zh-TW.txt；不宣稱本版已重新驗證USB握手、
+LCD可見刷新、桌面授權、實機Flash持久性或觸控／遠端桌面互動。
+圖片燒錄指外部素材Flash；MCU韌體燒錄尚未實作。60FPS是設定上限，非性能保證。
+套件使用ad-hoc簽署，codesign --verify --deep --strict通過，尚未Developer ID公證。
+
+發行封裝確認
+更新包內使用說明後重新ad-hoc簽署，程式碼未變；離線GUI啟動exit0。
+發行GUI SHA256：456a00a6d75c684abcc6860237b8da6e9709ba895daa3099f6a348c215a16a1c
+啟動時預覽來源／布局／完整內容像素比對皆通過；未連接硬體。
+證據：build/dark-ui-qa/release_smoke_result.json。
+
+2026-10-13 重啟後追加驗證
+USB及埠識別與既有紀錄一致；同一Controller連線、單張、串流、暫停／恢復、
+停止、閒置後重新驗證並續傳、中斷連線均通過，成功run exit0。
+Luna medium執行，Astra ultra全面分析；完整證據與限制見HARDWARE_RESUME_20261013_zh-TW.txt。
+僅追加控制層實機證據，未做桌面擷取、LCD目視或Flash擦寫，不分析使用者暫存FPS觀察。
+2026-10-12發行ZIP／source包維持原始內容與SHA256；新紀錄獨立保存。

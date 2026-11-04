@@ -1,0 +1,73 @@
+MSU2 Mini macOS：2026-10-11會話與恢復測試的事實覆核
+
+分工與完成狀態
+所有實機由GPT-6 Luna medium子代理依序執行；GPT-6 Astra ultra的全面分析已完成，主代理已覆核。
+七案套件加一案補測均已退出；沒有同時持有序列埠的競爭測試，收尾lsof兩別名exit1且無輸出。
+套件status completed表示有限排程已結束，不表示全部協定案例通過。
+兩個launcher exit1；各案原始失敗完整保留，不因後來握手成功改標傳輸成功。
+原版C++、更新演算法、ACK驗證與timeout保持不變，没有Flash、Windows或Rust開發。
+
+實際啟動八案的結果
+案例                         實際結果
+passive_idle初案              初始MSNCN echo逾時；沒進入傳圖與閒置，不可當作閒置測量。
+silent_idle30s                首full成功；30005.031ms完全無讀寫後開窗ACK逾時。
+                             同fd完整握手30.283ms成功，恢復full兩張均成功。
+active_control                六段5000ms僅RX間隔，各結束送固定full；七張full全部成功。
+                             六段均0RX、0MSN公告；ACK0.262~0.405ms、payload35.746~36.572ms。
+原版60 FPS／60秒（3840前）     3600 captured、3600 sent，frame_id精確0..3599，drop0，exit0。
+                             host_send_fps60.0116；full1、partial3599、rectangles4112。
+chunk3840 gap0                首full成功47.311ms；第二窗ACK逾時2001.293ms，該等待無RX。
+                             之後僅RX取得四個完整MSN01；同fd chunk60 recovery echo仍逾時。
+chunk3840 gap100ms            首full成功46.699ms；實際間隔101.164ms後第二窗ACK逾時2000.327ms。
+                             該等待無RX；之後四個MSN01；同fd chunk60 recovery echo仍逾時。
+原版60 FPS／60秒（3840後）     初始MSNCN echo逾時，沒有CSV、没有stream幀，不是60 FPS運行失敗。
+passive_idle單案補測           首握手/full成功，同fd兩個閒置/恢復cycle都完整執行。
+
+補測兩個cycle的直接量測
+cycle1：第一個MSN01於最後payload write_all返回後5114.269ms；monitor共5464.302ms、24byte/4公告。
+cycle2：第一個MSN01於最後payload write_all返回後5114.603ms；monitor共5465.301ms、24byte/4公告。
+每cycle均只RX而不TX；見公告後舊Session的window ACK各逾時約2000ms。
+same-fd strict recovery handshake各93.114/93.497ms成功；每次後續兩張固定full均成功。
+這是兩個同fdcycle，非兩個獨立重新上電樣本；不能把host收到公告時間當MCU定時器精度或功耗證據。
+
+3840計時錨點的區別
+CSV first_banner_ms從最後一次TX返回計算，此處是失敗的第二次window：5113.913/5010.648ms。
+Astra依raw OBS改以首張最後payload W為起點：5114.198/5111.940ms，與passive兩cycle接近。
+100ms間隔使兩種錨點差約100ms，不能把5010與5114的差異直接當作不同timeout常數。
+第二窗早於公告約五秒而已失敗；這個時序不能單靠正常的五秒閒置說明。
+RX沒有MSNCN exact echo的失敗仍是握手失敗，不以持續MSN公告或埠存在認定恢復。
+
+首full及60 FPS的覆核範圍
+成功長輪首full：ACK0.282ms、payload36.2418ms、host36.8184ms、32970byte、551write，drop0。
+首次全幅與後續小矩形負載不同，不能把初始化queue取代等同ACK故障。
+本輪僅一個真正開始串流的原版60秒樣本通過；第二個在握手失敗，沒有長測樣本。
+前輪30秒原版60仍有成功與完成496/1672列後ACK逾時的歷史，未因本輪成功而刪除。
+沒有新目視或LCD光學量測；host_send_fps不是已量出的面板刷新率。
+
+證據完整性
+主代理逐案獨立核對CSV、OBS格式、hash與雙alias guard記錄：八個實機啟動案例0項格式/hash錯誤。
+每個OBS R hex長度等於read size，保留所有收到的byte；TX記size與前18byte。
+partial_or_invalid標記的probe在初始/恢復失敗處依設計停止，未完成預期流程；不能推定原始CSV損毀。
+原版SHA256：4b64f7a3b542653ac843551cd0d7193adbb339c09ff64840e460e992307d960c
+隔離probe SHA256：d2880d4b89531a5b0acbf8a30a499819ca8c92aa3fb41e695a370f87ee11e7cd
+每案exe前後hash符合；原套件CHECKSUMS.sha256的57項全部符合。
+34項Python離線工具測試通過；C++假Transport、實際CSV17欄與引用檢查通過；不計硬體驗收。
+普通sandbox EPERM首輪沒有開埠，另存失敗紀錄，不列硬體故障；dry-run亦不計。
+
+實機證據目錄
+  results/macos/session_state/20261011T012917_845923+0800_a8f4050a/hardware
+  results/macos/session_state_followup/20261011T013222_778403+0800_e7f9ffb2/hardware
+純事實操作交接
+  results/macos/session_state/20261011T012917_845923+0800_a8f4050a/hardware_handoff.txt
+主代理完整性覆核
+  results/macos/session_state/primary_review.json
+未開埠EPERM輪
+  results/macos/session_state/20261011T012913_032529+0800_376d1fb0/hardware
+方法、程式與計時限制
+  docs/SESSION_STATE_TEST_PLAN_20261011_zh-TW.txt
+全面分析與改善建議
+  docs/SESSION_STATE_ASTRA_ANALYSIS_20261011_zh-TW.txt
+其引用48個證據檔與分析報告hash經主代理再核對全部符合。
+事後來源快照與compiler識別（明確標為測試後補存，不冒充build-time紀錄）
+  results/macos/session_state/provenance_after_tests.json
+  results/macos/session_state/source_snapshot_after_tests

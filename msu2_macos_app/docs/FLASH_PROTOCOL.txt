@@ -1,0 +1,124 @@
+MSU2 Mini macOS image-asset Flash support
+2026-10-11
+
+Scope
+The separate image-download action reads 100 pages and exports the stored image
+as PNG plus unmodified RGB565 bytes. It shares read_flash_bytes(), strict address
+echo matching, worker/serial ownership, progress and cancellation; it never calls
+erase, staging, commit or display. See FLASH_DOWNLOAD_zh-TW.txt.
+The app writes one 160x80, high-byte-first RGB565 image (25,600 bytes, 100 pages)
+to the external P25D80. It does not flash the CH32X033 MCU or accept an arbitrary
+firmware file. The existing live display encoder is unchanged.
+
+Bounds and presets
+The author's guide [1], printed page14/PDF page16, specifies 1 MiB, 256-byte
+pages, page addresses 0..4095, and erase-before-write. This implementation rejects
+any image whose start page is greater than3996 or size differs from25,600 bytes.
+It never truncates data. Background page3826 and album page3926 are established
+by independent application sources [2,5]. They are occupied asset slots, not
+guaranteed unused space. Pages0..3599 are used by36 offline animation frames.
+
+Wire commands
+Each command is6 bytes; all addresses/counts below are big endian.
+  Read one byte:  03 00 byte_addr[23:16] byte_addr[15:8] byte_addr[7:0] 00
+  Erase pages:    03 02 start_page[15:8] start_page[7:0] count[15:8] count[7:0]
+  Fill page RAM:  04 group_index data0 data1 data2 data3 (group_index0..63)
+  Commit page:    03 03 page[23:16] page[15:8] page[7:0] 01
+  Display image:  02 00 00 00 00 00
+                  02 01 00 A0 00 50
+                  02 03 00 page[15:8] page[7:0] 00
+One image therefore uses a range erase and100 page packets, each390 bytes.
+The command forms are corroborated by [2,4,5]. Read byte result is response[5]
+in [3]. The app does not use chip erase, reset/ISP, or MCU flashing commands.
+
+Responses and verification
+The third-party implementations accept weak "any received data" responses,
+sometimes ignoring timeouts [3,6]; that is not evidence of persistence. Here,
+erase/commit/display require a complete6-byte response with matching command
+class and operation. This stricter framing is an implementation policy, not a
+hardware-verified contract. A response timeout is fatal; nothing automatically
+retries an erase or uncertain write.
+
+Readback requires the first5 response bytes to echo the exact read command
+address and uses byte5 as data. The address-echo check is deliberately stricter
+than [3]. A read-only hardware run on2026-10-17 successfully downloaded all25,600
+bytes from pages3826..3925 with this check; this does not establish compatibility
+with all firmware or write/erase replies.
+With the default verify_readback=true, first/last-byte read probes run BEFORE
+erase. Unsupported read framing stops the operation before any modification.
+After all100 commit responses, every one of25,600 bytes is read back and compared.
+Only a complete matching image readback establishes that the requested bytes were
+read correctly in that session. Image readback alone does not establish neighbor
+preservation, retention after power cycling, pixel appearance, or chip identity.
+
+The application Controller additionally reads the complete envelope of touched
+4 KiB sectors BEFORE erase. It saves the original bytes in _backup.bin and the
+confirmed RGB565 pixels in _intended.rgb565, alongside a manifest. A failed read
+or failed backup file save stops before every erase/commit command. For page3826,
+the envelope is28,672 bytes, including512 bytes before and2,560 bytes after the
+image. After image readback, the Controller compares those surrounding bytes with
+the saved backup. Empty neighboring ranges (such as the range before page0) are
+skipped. The manifest records per-phase/page progress and neighbor verification.
+The lower-level execute_flash() library does not perform this backup or neighbor
+comparison; its caller must provide them. The UI freezes the preview's decoded
+pixels before the overwrite confirmation, so later source-file changes cannot
+silently change the approved image.
+
+The guide describes arbitrary page-range erases (including example pages20..23),
+but no firmware implementation proving how underlying physical erase sectors
+preserve neighboring pages was available. Thus this app cannot promise that
+nearby factory assets are unaffected on every firmware. The library's preflight
+probes are not a backup. The Controller's neighbor check detects changes AFTER
+they occur; backup files do not automatically restore them. A mismatch closes
+the session and retains the evidence. Overwrite confirmation discloses the exact
+image range, saved-backup location and this limitation. No physical Flash
+erase/write operation was performed in development.
+
+Ownership and cancellation
+Caller supplies an already handshaken, exclusively owned Transport under the
+shared serial guard. Streaming must be stopped while flashing. On exception,
+dispose of the session and report a possibly partial/unknown result. Never
+resume automatically after reconnect. Normal cancellation is checked before
+erase, after erase reply/settle, between acknowledged page writes, and between
+readback pages. Cancellation after erase may leave the whole target range erased
+and only some pages written; it does not roll back. Keep the device connected
+until the current erase or page operation completes or times out.
+
+Offline validation
+tests/test_flash.cpp uses only a fake Transport. It checks literal command
+fixtures, boundary/overflow rejection before I/O, fragmented responses, complete
+readback, readback corruption, response mismatch/timeouts, disconnect propagation,
+and cancellation between pages. Its simulated page erase cannot establish real
+device erase granularity. No test opens a serial port or silently burns assets.
+tests/test_controller_edges.cpp also checks backup read and file-save failures
+prevent erase, disconnect during backup/page commit, frozen confirmed pixels,
+page0's empty preceding range, and simulated sector erasure damaging neighbors.
+The sector simulation confirms detection and backup retention, not the real
+firmware's erase granularity or a successful restoration procedure.
+
+Sources inspected2026-10-11
+[1] Author Einx / MORI ATELIERS, MSU2 Series Development Guide v1.10 (2024-11-02).
+    Local: reference/public_research_20261010/MSU2_Series_Development_Guide_v1_10.pdf
+    SHA256 0b242b6e30b7907f52825df16ed9bc7a955e82cc1d807a2640148130ee85d185
+    See reference/public_research_20261010/SOURCE.txt for original Gitee URL.
+    Printed page5 describes external asset memory; page14 specifies bounds/erase;
+    pages2..4 describe separate WCHISPTool MCU update, which is not implemented.
+
+[2] https://raw.githubusercontent.com/Carteahere/MSU2-USB-Screen-Android/33ba32037ea301254803ea657240eaab5e6b48a4/app/src/main/java/com/msu2/android/usb/Msu2Protocol.kt
+    SHA256 542a1758977852dada230d9bb9bdc11bccce20be3df2740f20d61539de7e7f5f
+    Lines19..28 asset slots;48..80 Flash commands;113..115 color-image display.
+[3] https://raw.githubusercontent.com/Carteahere/MSU2-USB-Screen-Android/33ba32037ea301254803ea657240eaab5e6b48a4/app/src/main/java/com/msu2/android/usb/Msu2Serial.kt
+    SHA256 e2b0c317aabc44e784e52ac35b258ea871f3f510e3f8b30cd91cb0c99135a8b6
+    Lines148..160 readback byte position and response policy.
+[4] https://raw.githubusercontent.com/Carteahere/MSU2-USB-Screen-Android/33ba32037ea301254803ea657240eaab5e6b48a4/app/src/main/java/com/msu2/android/ui/FlashWriter.kt
+    SHA256 103b45bd4d09da381c6cd4ab5b7ff973956cef96595b81705ef1b91c4c706556
+    Range erase then page staging/commit; erase settle200ms.
+[5] https://raw.githubusercontent.com/Blackwood416/MSU_Mini_UsbScreen/ae303c6b783c7f5b3019d5993ce2438f9704e906/UsbScreen.Core/Utils/FlashUtil.cs
+    SHA256 aa273547d6679d789528d53dff7ea6c6bc906dc9cc9cc206d5578872f2f63cb6
+    Lines19..25 asset slots;217..272 staging, commit and erase bytes.
+[6] https://raw.githubusercontent.com/Blackwood416/MSU_Mini_UsbScreen/ae303c6b783c7f5b3019d5993ce2438f9704e906/UsbScreen.Core/Utils/SerialPortUtil.cs
+    SHA256 f67a98352f30f928c5209bc87f7cced7f7dd5d0a5380b332bbaeac50a05d7318
+    Lines54..67 legacy weak response/timeout policy.
+
+[2]..[6] are source code from third-party host implementations, not an official
+firmware specification. Fixed commit URLs and byte hashes pin the evidence.

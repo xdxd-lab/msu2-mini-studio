@@ -1,0 +1,25 @@
+{
+  "base": "MSU2_MINI_CPP_v0_2_20261010/msu2_cpp_v0_2",
+  "copied_source_sha256": {
+    "CMakeLists.txt": "c6bbb8d3f95c6e4215f7f18acb843a4a3cf118a65ebf864dd8e2194f70992b7d",
+    "scripts/build.sh": "b88d3a2ad98c4792c12a0277e80d74f180ce3ac322a03bed904d60594a515fda",
+    "include/msu2/capture.hpp": "245c797c0ea6060af3bf25eab039a664a32df9c3d995b285c77dd80d57595a5e",
+    "include/msu2/delta.hpp": "97d53797f510eaf2b815ea29011a3a5675f2dbeb96406adf70fd7d84835318eb",
+    "include/msu2/image.hpp": "07cfabf4c768622381a2ef44fa006e8d213383cc312a08ef190fa988ca20690d",
+    "include/msu2/latest.hpp": "c9681c712e2d07d86fc2544f75de7ca486473f6b2c66865a3964c79827a165e4",
+    "include/msu2/protocol.hpp": "8664bb5280245176f14714b8d150a713516d4004cfa1f99185e14122a24e23fa",
+    "include/msu2/session.hpp": "ce80fe21a7f1f7a2de991584f1555d821bdc364f6cd7731b456eeb98b7525de0",
+    "include/msu2/transport.hpp": "b9da2376af4b7f2308897c101a586344e83e7fac9d2f037e11f0c133d8478323",
+    "src/capture.cpp": "27ab45ada91363926b9e03cef20a969b408986f518ee4d33a41008c3480370fe",
+    "src/delta.cpp": "74882190d1fcab2f9dc25982650a903e1efbda16d552f2830ab40911b4818e4e",
+    "src/image.cpp": "666693cabdbd2380140e43d84cfbba5ff0420bc044e240871cb23c4112c8efd6",
+    "src/main.cpp": "95ab83126fd9a1d633ea75bf953bd3d4a58e4ab50d3e427f0601a14b7686908c",
+    "src/protocol.cpp": "73c5b2c3f42476d5dc1d1c62d7b080023b9a931eef6a76bbd43a1ad5782be9c4",
+    "src/session.cpp": "c55978585b023dcef5b1e7f5b11bc47f7d159ffb2cb128da8ea345e7babee6fc",
+    "src/transport.cpp": "5c176b345ae84eba04d352ec46434a4c1c157d27405aa2e605e330f8f701df3a",
+    "tests/test_core.cpp": "e378cf3525196a022bd3665e93930717c11732a5c3a25e07b78d9239f85bb3c6",
+    "tests/test_delta.cpp": "da6c87e1807a232d772a42f4d801d433505c3355d32fcb136ad5286fe6111ff3",
+    "tests/integration_pty.py": "cd94b7725b761ff495c7784c1c18354317ed21786b3e3a03cbd02601e54642b2"
+  },
+  "note": "Hashes describe the preserved v0.2 input before Linux v0.3 edits."
+}

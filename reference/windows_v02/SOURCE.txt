@@ -1,0 +1,11 @@
+來源：ChatGPT 專案「MSU2 Mini 燒錄程式反組譯開發」
+對話：「MSU2 Mini 前置調查討論」
+conversation id：6ac76b6d-852c-83e8-a47a-1acf33c365ce
+2026-10-10 經 read_thread 取得使用者已提供附件的本機預覽檔；原樣複製，未修改。
+
+v02_diff30.csv
+SHA256 5998ed1ddfe22c61d92c3ff773607cb97b0be8e8a9838a60bf451ccf0cb1ae94
+v02_diff30.log（UTF-16 LE BOM）
+SHA256 9b3bfaa6ffb07d295123a2111979cb706b36c46e20e214e3a809513e3e343e0c
+
+這是 Windows 的歷史參考，並非 macOS 已執行成果。

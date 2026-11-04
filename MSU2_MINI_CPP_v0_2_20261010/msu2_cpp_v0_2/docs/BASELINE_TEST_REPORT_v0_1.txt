@@ -1,0 +1,79 @@
+MSU2_MINI C++ v0.1.0：主代理測試評估
+日期：2026-10-08
+
+決定：可交付作為「待實物驗證的核心原型」。目前證據支持編碼與模擬傳輸正確，不支持宣稱硬體相容性已全面通過或60fps已達成。
+
+分工
+- 測試：GPT-6.1 Sol，xhigh（使用者指定「最高」）。
+- 主代理：核對來源、核心與CLI實作、評估失敗、修正、檢視測試覆蓋與benchmark，決定本次不做額外微小CPU優化。
+- 其他子代理：協定資料檢索、作業系統傳輸與Windows擷取實作、官方工具鏈下載；沒有代替指定代理執行測試。
+
+1. 已通過的驗證
+
+Linux x86_64／g++13.3.0／Python3.12.14；CPU顯示AMD EPYC9V74，並非使用者MacM4或Windows筆電。
+Release、Debug、ASan+UBSan（關閉環境不支援的LeakSanitizer）各通過14,883項核心檢查與CLI／PTY整合案例。
+
+獨立C++／Python解碼器以命令語意還原像素，沒有把新encoder當作自己的唯一oracle。驗證包含：
+- 開窗golden bytes；raw全幀39,018B；單色pair全幀1,218B。
+- 色序、完整頁、1/3/127/128/129/255像素边界、尾頁FF填補、非法矩形與資料長度。
+- 壓縮頻數平手允許合法不同封包，要求解碼後像素完全相同。
+- 分段與含雜訊的握手、完整MSNCN确认、prefix與experimental echo回應。
+- 單一session擁有者、未握手拒絕、錯誤後失效、逾時與整幀分塊共用期限。
+- P3/P6解析、二進位空白/#/NUL像素、截短／無效檔案、中心裁切與RGB565。
+- 最新幀佇列替換、關閉、錯誤傳遞、慢回應時不打斷已開始的幀。
+
+真實POSIX transport經PTY模擬裝置測probe/send/stream與錯誤路徑。慢ACK情境：8幀擷取、2個完整幀傳出，最後保留frame_id7，丟棄6個待送舊幀，CSV一致。
+握手無回應、錯誤回覆、缺少LCDACK、斷線、echo模式只收到prefix等案例均非零退出且有界結束。
+這是模擬串列驗證，不是硬體USB／LCD測試。
+
+Windows x64：使用官方LLVM-MinGW20260908／LLVM23.1.1 UCRT工具鏈成功跨編譯主程式與核心測試程式；未在Windows執行。主程式已隨附bin/windows-x64/msu2.exe。
+工具鏈下載檔SHA256與官方release metadata一致：2258c745e3155870c80793f3e8c80b28fbde11b9ff73c4c78783635b3440b092。
+實際編譯指令、DLL匯入與最後rebuild結果見tests/TEST_RESULTS_61_XHIGH.txt。
+
+2. 本輪缺陷處理
+
+測試代理發現CLI說明字串結尾的C++語法錯誤；主代理修正後重新通過建置與測試。
+主代理檢視時另完善CSV失敗檢查、非Windows桌面擷取在開埠前拒絕，以及使用lock-free atomic保存Ctrl+C跨執行緒旗標。
+最初影像縮放測試假設nearest，而程式採bilinear；代理修正錯誤的測試假設，沒有把正常演算法差異當成產品缺陷。
+
+3. CPU與資料量
+
+來源docs/benchmark_linux.csv；每一種圖樣／編碼組合先暖機32次，再測2,000次，六種圖樣各做raw與pair。
+測量範圍只有RGB888→RGB565＋MINI頁編碼，圖片預先產生，排除擷取、USB、LCD與GUI。
+
+圖樣        raw bytes/幀    pair bytes/幀    pair轉色＋編碼平均ms
+單色          39,018          1,218              0.045614
+色條          39,018         33,618              0.081800
+棋盤          39,018         20,418              0.063694
+漸層          39,018         38,418              0.087784
+雜訊          39,018         39,018              0.129485
+移動圖樣      39,018         33,024（平均）       0.074422
+
+主代理判讀：
+- CPU端在此容器有充足裕量；上述0.046～0.129ms遠小於60次/秒的16.67ms幀預算，但沒有包含實物傳送成本。
+- 單色pair比raw減少約96.9%應用層bytes；雜訊幾乎無法節省，pair會多做統計。
+- 下一個關鍵量測是不同chunk大小下的實機寫入／回應等待，以及螢幕真正顯示的新幀數。
+- 現階段保留raw／pair作對照，不為微秒差異增加新的複雜度，也不在未確認LCD開窗語意前加入跨幀髒矩形。
+- 尚無同機舊Python Demo實跑數據，因此不宣稱相對原廠提高多少倍。
+
+4. 尚未驗證的範圍
+
+- 使用者實體MINI、USB descriptors、韌體banner與板版一致性、方向、LCD更新率、撕裂與可見延遲。
+- Windows程式執行期與GDI畫面正確性；macOS編譯／串列執行期，macOS桌面擷取尚未實作。
+- LCD完整ACK格式仍不明；prefix相容模式只識別02 03，無交易ID，不能證明panel完成。
+- CMake環境未備妥，未執行CMake configure；Linux直接g++建置與Windows跨編譯已通過。
+- LeakSanitizer受容器/proc/task／ptrace限制，未通過記憶體洩漏檢測；ASan和UBSan已通過。
+- Windows驅動若不能及時完成CancelIoEx取消，清理仍須等其結束，可能超過名義逾時。
+- 測試期間曾觀察到暫存binary變成0byte及script權限未保留，原因未明；未將其歸因於production。交付用執行檔已重新建置並使用獨立輸出路徑保存。建置script可用bash明確呼叫。
+
+5. 第一個實物測試
+
+關閉其他上位機；解壓後在Windows PowerShell執行：
+  .\bin\windows-x64\msu2.exe ports
+確認MINI埠，例如COM3，再執行：
+  .\bin\windows-x64\msu2.exe stream --port COM3 --pattern bars --fps 15 --frames 150 --csv first_check.csv
+
+請保留主控台輸出、色條照片與first_check.csv。第一輪先判斷辨識、色序、方向與穩定性，再測desktop／30／60目標與raw／pair流量對照。
+macOS可依README建置後使用相同圖樣与PPM測試；本版不需要改寫MCU。
+
+Rust比較留待C++得到實物基準後進行。屆時固定同一硬體、素材、封包策略、更新頻率與擷取方式，分開比較CPU、資料量、主機延遲與螢幕可見幀率。
