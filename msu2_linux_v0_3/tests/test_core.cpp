@@ -225,8 +225,16 @@ msu2::SessionOptions fast_options(msu2::AckMode mode=msu2::AckMode::prefix) {
 msu2::EncodedFrame small_frame() {
     msu2::EncodedFrame f; msu2::encode_frame(Bytes{0xF8,0},{0,0,1,1},msu2::Encoding::raw,f); return f;
 }
+// Appears in failure messages so a CI log shows what the fake actually saw.
+std::string budget_text(const std::vector<msu2::Milliseconds>& budgets) {
+    std::string text="count="+std::to_string(budgets.size())+" ms=";
+    for (const auto budget:budgets) text+=std::to_string(budget.count())+' ';
+    return text;
+}
 void session_tests() {
     const auto f=small_frame();
+    // Raw payload has no 02 04 page header, so every chunk starts with 04 and is delayed.
+    const std::size_t delayed_chunks=(f.payload.size()+59)/60;
     {
         FakeTransport t; t.greeting(); msu2::Session s(t,fast_options());
         check(s.handshake()==16 && s.connected(),"fragmented noisy greeting and exact echo");
@@ -294,9 +302,22 @@ void session_tests() {
     }
     {
         FakeTransport t; t.greeting(); msu2::Session s(t,fast_options()); s.handshake(); t.payload_delay=msu2::Milliseconds{6};
+        // Seven delayed chunks need at least 42 ms of a 20 ms budget, so this fails on any
+        // scheduler. A stalled runner may stop after fewer chunks, so no minimum count holds.
         const auto start=Clock::now(); rejects([&]{s.send(f);},"payload uses one bounded deadline, not a fresh deadline per chunk");
         check(!s.connected() && Clock::now()-start<std::chrono::milliseconds(100),"global payload deadline invalidates promptly");
-        check(t.write_budgets.size()>=2 && t.write_budgets.back()<t.write_budgets.front(),"payload timeout budgets decrease");
+        check(t.write_budgets.size()<delayed_chunks,"global payload deadline stops before the last chunk: "+budget_text(t.write_budgets));
+    }
+    {
+        // Compares budget values, not elapsed time: each chunk sleeps at least 2 ms, so a
+        // single deadline must lower every later budget however late the thread wakes.
+        // A deadline renewed per chunk repeats the same value. 5 s only has to outlast a stall.
+        auto o=fast_options(); o.handshake_timeout=msu2::Milliseconds{5000}; o.io_timeout=msu2::Milliseconds{5000};
+        FakeTransport t; t.greeting(); msu2::Session s(t,o); s.handshake(); t.payload_delay=msu2::Milliseconds{2};
+        s.send(f);
+        const auto& b=t.write_budgets;
+        check(b.size()==delayed_chunks && std::adjacent_find(b.begin(),b.end(),[](auto x,auto y){return x<=y;})==b.end(),
+              "payload timeout budgets decrease: "+budget_text(b));
     }
     {
         FakeTransport t; t.invalid_read_count=true; msu2::Session s(t,fast_options());
