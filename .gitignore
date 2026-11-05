@@ -2,12 +2,6 @@ results/
 __pycache__/
 *.pyc
 .DS_Store
-msu2_macos_app/build/
-msu2_cpp_v0_2/build/
-msu2_cpp_v0_2/tests/.build/
-MSU2_MINI_CPP_v0_2_20261010/msu2_cpp_v0_2/build/
-MSU2_MINI_CPP_v0_2_20261010/msu2_cpp_v0_2/tests/.build/
-
 # Local experiment evidence, packaged apps and generated build products.
 dist/
 **/build/

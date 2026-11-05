@@ -80,6 +80,8 @@ SerialGuard::SerialGuard(const std::string& port,const std::string& root) {
     try {
         if(flock(fd_,LOCK_EX|LOCK_NB))throw std::runtime_error("其他測試持有共用序列埠鎖；請等候完成");
         check_idle(port);
+        // Kept after unlock for diagnostics. Ownership is decided by flock
+        // and the live cu/tty owner check, never by this possibly stale PID.
         const std::string evidence="pid="+std::to_string(getpid())+" port="+port+" aliases_checked=cu,tty\n";
         if(ftruncate(fd_,0)||write(fd_,evidence.data(),evidence.size())!=static_cast<ssize_t>(evidence.size()))
             throw std::runtime_error("序列埠鎖紀錄寫入失敗");

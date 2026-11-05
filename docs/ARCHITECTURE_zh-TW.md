@@ -1,6 +1,6 @@
 # MSU2 Mini Studio 軟體架構
 
-本文說明原生 macOS App 的結構和執行期規則。最新實機狀態請看 `handoff/README_交接入口_20261105.md` 和各次 `results/` 的分析，這裡不重複。
+本文說明原生 macOS App 的結構和執行期規則。結果與限制以[現況](STATUS_zh-TW.md)為準；接手流程見[交接入口](HANDOFF_zh-TW.md)。
 
 ## 模組
 
@@ -26,6 +26,8 @@
 - `trace.hpp`：診斷事件和 `TraceSink` 介面。
 
 MCU 韌體燒錄沒有實作。「Flash」在本專案一律指外部素材 Flash。
+
+共用核心的 `main.cpp` 是獨立 CLI，`capture.cpp` 保留早期 Windows 擷取實作；兩者都不編入 macOS App。App 的桌面來源由 `platform.mm` 提供。
 
 ## 執行緒與擁有權
 
@@ -105,6 +107,14 @@ CSV 的 `dropped_total` 是 frame id 缺號數，不是佇列取代次數。佇�
 - `log,end` 只在 Controller 正常解構時寫入。**沒有 `log,end` 的檔案一律視為不完整**，所以要等 App 結束後才能取最終檔。
 - 不保存桌面像素、Pair 顏色、payload 或未知的 RX 原始 bytes。RX 只留已識別樣式的計數和 read 時間。
 
+可用 `open --env` 對新實例明確指定診斷環境。以下路徑對應 README 的隔離建置；執行前先結束先前的實驗，避免兩份 App 同時操作裝置：
+
+```sh
+open -n --env MSU2_DIAGNOSTICS=1 -a "$PWD/results/local-build/MSU2 Mini Studio.app"
+```
+
+以該實例的 `events.log` 診斷啟用訊息及 `diagnostics.csv` 的 `log,begin` 核實，不從啟動命令推定記錄已生效。詳細判讀見[診斷](DIAGNOSTICS_zh-TW.md)。
+
 ## 建置與測試
 
 ```bash
@@ -118,6 +128,12 @@ BUILD_DIR=/path/to/build msu2_macos_app/scripts/build_hardware_driver.sh
 - `launch_current.sh` 只開啟預設路徑的 App，不會開啟 `BUILD_DIR` 的建置結果。
 - `build_hardware_driver.sh` 只編譯，要先用相同的 `BUILD_DIR` 跑過 `build.sh`。
 - 新增 `.cpp` 時，要同時更新 `build.sh`、`test.sh` 的來源清單；如果 `controller.o` 依賴它，也要更新 `build_hardware_driver.sh`。
+
+## App 身分與螢幕授權
+
+bundle identifier 目前是 `local.msu2mini.studio`。固定路徑、隔離建置及凍結候選可能同名；核對實際程序與 App 路徑，不透過名稱搜尋選版本。
+
+ad-hoc 重建可能使原授權失效。依系統提示授權後，結束並從確切路徑重新啟動；CLI 與 App 的擷取授權須分別確認。不要自動重設 TCC 或將可顯示預覽等同於取得裝置握手。`MSU2_CODESIGN_IDENTITY` 只選簽章身分，正式簽章與升版驗收見[發布準備](RELEASING_zh-TW.md)。
 
 ## 修改邊界
 

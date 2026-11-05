@@ -1,32 +1,20 @@
-MSU2 Mini Studio 0.2.0 — macOS C++ 應用程式
+MSU2 Mini Studio — macOS 操作說明
 
-新增「圖片下載」分頁：指定外部 Flash 起始頁，讀取連續 100 頁，匯出一張
-160×80 PNG、原始 RGB565 與頁面資訊；提供進度、取消與開啟結果資料夾。
-
-淺色介面（2026-10-17 回復早期版型）
-使用原生 macOS 淺色外觀與緊湊控制項；不提供 100%／125%／150% 介面縮放。
-裝置連線位於上方；投射與串流頁左側直接顯示來源、FPS、差分更新、Pair、優先區域、Hold 與 ACK。
-開始／暫停／停止／傳送單張回到設定區下方，工作統計以精簡文字橫排呈現。
-不需展開進階設定。畫面預覽右側保留自動判斷深／淺／雙色外框，不另設開關。
-主機FPS與LCD未量測分別標示；ACK、握手失敗、來源擷取丟幀、傳輸錯誤分項保留。
-「來源擷取丟幀」是來源產生錯過的排程時槽；「等待影格取代」是單槽佇列被新影格取代。
-「傳送觀察缺幀」沿用既有來源幀號差統計；暫停／恢復時會捨棄舊影格，不應解讀為所有來源無損。
-上述分項只增加統計，不改變來源排程、傳送、壓縮、差分、分區或重連演算法。
-
-自動對比外框預設開啟。依最終RGB565影像四邊2pixel樣本的最差sRGB亮度對比，
-選擇深／淺線；單線未達3:1時使用雙色框，切換需要250ms穩定期。
-預覽保持2:1與最近鄰縮放。框線及中性留白在影像之外，並裁去內容矩形。
-外框不會改變傳送或燒錄像素。這是工程對比目標，並非無障礙認證。
-原深色版介面驗證說明保留於 docs/DARK_TOUCH_UI_VALIDATION.txt；歷史實機結果見原 VALIDATION_zh-TW.txt。
+工程開發版本；桌面投射、圖片串流、外部素材 Flash 寫入與圖片下載。
+目前功能與待驗收項目以原始碼根目錄 docs/STATUS_zh-TW.md 為準。
+完整原始碼文件：https://github.com/xdxd-lab/msu2-mini-studio/tree/main/docs
 
 開啟與建置
-  bash msu2_macos_app/scripts/build.sh
-  bash msu2_macos_app/scripts/launch_current.sh
+從原始碼根目錄執行：
+  BUILD_DIR="$PWD/results/local-build" bash msu2_macos_app/scripts/build.sh
+  open -n -a "$PWD/results/local-build/MSU2 Mini Studio.app"
 需要 macOS 13 或以上、Xcode Command Line Tools。無須 Python、CMake、Qt 或第三方套件即可執行應用程式。
 目前建置依本機架構產生執行檔，使用 ad-hoc 簽署，尚非 Developer ID 公證發行版本。
-請用上述腳本開啟專案 build 內的目前版本；舊版測試副本仍保留在 dist、build/archive 與歷史結果資料夾，
-同名 App 容易被其他啟動方式選錯。此專案目前沒有可用的正式程式簽章憑證；臨時簽章會隨程式重建改變，
-macOS 可能不承認先前的螢幕錄製授權。若日後備妥穩定的簽章憑證，可設定 MSU2_CODESIGN_IDENTITY 再建置。
+BUILD_DIR 決定實際輸出。未設定時預設為 msu2_macos_app/build，會覆寫該處 App；
+launch_current.sh 只啟動此預設路徑，不會啟動上述 results/local-build 的隔離建置。
+同名 App 容易被其他啟動方式選錯，請核對絕對路徑。
+預設臨時簽章在重建後可能不被先前的螢幕錄製授權認可。備妥穩定簽章身分後可設定
+MSU2_CODESIGN_IDENTITY；此設定不代表已完成公證或升版授權驗收。
 核心使用 C++17；視窗、圖片解碼、ScreenCaptureKit 與 IOKit 透過 Objective-C++ 呼叫原生框架。
 
 開始使用
@@ -36,7 +24,7 @@ macOS 可能不承認先前的螢幕錄製授權。若日後備妥穩定的簽�
 2. 選擇「圖片」並載入 PNG、JPEG 或 PPM，可先看中央裁切後的 160×80 預覽。
    「傳送單張」維持現有 full/pair 格式，寫入後等待預設 13 ms，連線保留。
 3. 桌面投射請先按「授權桌面擷取」，在 macOS 螢幕錄製權限中允許本程式。
-   請確認授權的是上述固定路徑的目前版本；必要時完全關閉舊版及目前版，再用腳本重開。
+   請確認授權的是實際啟動路徑的版本；必要時完全關閉舊版及目前版，再從精確路徑重開。
    重新建置臨時簽章版本後可能需重新核准。擷取主顯示器中央 2:1 範圍，縮放為 160×80，包含游標、不錄音。
    權限只由使用者點擊申請；程式啟動不會自動擷取桌面。
 4. 「開始串流」持續執行，直到「停止」。暫停保留連線，恢復後第一張重新全幅同步。
@@ -91,6 +79,9 @@ Flash ACK/位址回覆採較嚴格的相容性檢查；其實體韌體支援與�
   flash_*_backup.bin  覆蓋範圍及涵蓋 sector 的原始備份
   flash_*_intended.rgb565  使用者確認的圖片像素
 預覽是來源畫面，不是 LCD 光學擷取；既有 prefix ACK 也不是面板已顯示完成的證據。
+「來源擷取丟幀」是排程錯過的時槽，「等待影格取代」是單槽佇列覆蓋的等待影格；
+「傳送觀察缺幀」是消費端觀察的來源幀號缺號。三者不能相加成 LCD 遺失影格。
+預覽的自動對比外框不改變送出或燒錄像素，預覽也不是 LCD 回讀。
 
 序列埠互斥
 C++ SerialGuard 與 scripts/macos/serial_guard.py 使用相同 cu/tty 正規化、SHA256 前20字元 lock key、flock。
@@ -99,7 +90,8 @@ C++ SerialGuard 與 scripts/macos/serial_guard.py 使用相同 cu/tty 正規化�
 可設 MSU2_SHARED_LOCK_ROOT 讓不同副本或其他啟動器共用固定目錄。
 
 命令列伴隨程式（與視窗共用同一控制層）
-  "msu2_macos_app/build/MSU2 Mini Studio.app/Contents/MacOS/msu2ctl" --help
+以下路徑對應前述隔離建置；其他 BUILD_DIR 請換成實際路徑。
+  "results/local-build/MSU2 Mini Studio.app/Contents/MacOS/msu2ctl" --help
   .../msu2ctl devices
   .../msu2ctl connect --port /dev/cu.usbmodem01234567891
   .../msu2ctl send --port /dev/cu.usbmodem01234567891 --input manual_test_kit/images/01_color_bars.ppm
@@ -109,10 +101,9 @@ C++ SerialGuard 與 scripts/macos/serial_guard.py 使用相同 cu/tty 正規化�
 省略 --duration 或設 0 時串流直到 Ctrl-C。Flash 寫入由圖形視窗確認後執行。
 
 離線驗證
-  bash msu2_macos_app/scripts/build.sh
-  bash msu2_macos_app/scripts/test.sh
+  BUILD_DIR="$PWD/results/local-tests" bash msu2_macos_app/scripts/test.sh
+  SANITIZERS=1 BUILD_DIR="$PWD/results/local-sanitized" bash msu2_macos_app/scripts/test.sh
 測試包含既有核心/差分/分區測試、fake transport 的連線/暫停/錯誤分類/鎖釋放、Flash 命令及完整讀回。
 這些離線測試不等於真實螢幕顯示或 Flash 持久性驗收。
-實機測試與分析依專案 AGENTS.md 分工保存於 results/macos；既有0.1.0實機證據保留於VALIDATION_zh-TW.txt。
-0.2.0於2026-10-12完成介面及離線驗證，見docs/DARK_TOUCH_UI_VALIDATION.txt。
-2026-10-13重啟後追加控制層實機生命週期驗證，見docs/HARDWARE_RESUME_20261013_zh-TW.txt。
+實機測試與分析依專案 AGENTS.md 分工，原始證據另外保存於 results/macos，不隨 Git 推送。
+接手請讀根目錄 docs/HANDOFF_zh-TW.md；歷史驗證不可當成目前任一新建置的實機驗收。

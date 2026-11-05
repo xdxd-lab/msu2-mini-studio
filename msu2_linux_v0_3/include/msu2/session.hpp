@@ -9,7 +9,7 @@ enum class AckMode { prefix, echo };
 struct SessionOptions {
     Milliseconds handshake_timeout{5000};
     Milliseconds io_timeout{2000};
-    std::size_t write_chunk=3840; // multiple of 6, user can try legacy 60
+    std::size_t write_chunk=3840; // Core default; must be a multiple of 6. The macOS App selects 60.
     AckMode ack_mode=AckMode::prefix;
     // Optional, owned by the caller and must outlive the Session. Tracing only
     // observes: the transport call sequence, arguments and timeouts are the
@@ -23,6 +23,8 @@ struct TransferStats {
     std::size_t bytes=0;
     std::size_t write_calls=0;
 };
+// Not thread-safe: create and use on one thread. I/O methods enforce the
+// construction thread; observers and trace-context setters need the same ownership.
 class Session {
 public:
     explicit Session(Transport&, SessionOptions = {});

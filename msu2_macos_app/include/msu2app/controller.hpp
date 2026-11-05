@@ -27,6 +27,8 @@ struct Snapshot {
     std::string state="disconnected", message="尚未連線", port, log_directory;
     int firmware_banner=-1;
     bool connected=false, streaming=false, paused=false, busy=false;
+    // dropped is the consumer's source-frame ID gap count, not queue replacement
+    // count or LCD frame loss. A successful logical update may send several rectangles.
     std::uint64_t sent=0, unchanged=0, dropped=0, bytes=0;
     std::uint64_t capture_dropped=0, queue_dropped=0; // capture slots missed / waiting frames replaced
     std::uint64_t handshake_failures=0, ack_timeouts=0, transport_errors=0, reconnects=0;

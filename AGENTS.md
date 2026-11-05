@@ -11,8 +11,8 @@
   three-party workflow is active, use p2 for verification and p3 for analysis.
 - Keep each edit scoped to an agreed owner. Refactors must preserve protocol,
   ACK acceptance, timeouts, and display scheduling unless explicitly in scope.
-- Prefer README.md, docs/ARCHITECTURE_zh-TW.md and
-  docs/REPOSITORY_WORKFLOW_zh-TW.md for source checkout orientation. Historical
+- Start with README.md, docs/HANDOFF_zh-TW.md and docs/STATUS_zh-TW.md;
+  use docs/ARCHITECTURE_zh-TW.md and CONTRIBUTING.md for implementation work. Historical
   handoffs contain local paths and old state; check dates and current evidence.
 - Keep experiments in project-local results/ with isolated BUILD_DIR values.
   Do not overwrite a frozen candidate or the user's authorized App. Raw evidence

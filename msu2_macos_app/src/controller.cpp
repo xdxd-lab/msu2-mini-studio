@@ -119,7 +119,7 @@ struct Controller::Impl {
     // into streaming. The writer detects failures up to ~200 ms after the event.
     void check_diagnostics(){
         if(!diag)return;
-        if(!diag_fail_warned&&diag->write_failed()){diag_fail_warned=true;log("診斷紀錄寫入失敗；diagnostics.csv 自此不完整，串流不受影響");}
+        if(!diag_fail_warned&&diag->write_failed()){diag_fail_warned=true;log("診斷紀錄寫入失敗；diagnostics.csv 自此不完整，串流繼續");}
         if(!diag_lost_warned&&diag->lost_any()){diag_lost_warned=true;log("診斷緩衝已滿，部分診斷事件遺失；diagnostics.csv 不完整");}
     }
     // No-op unless MSU2_DIAGNOSTICS enabled the log; safe from any thread.
