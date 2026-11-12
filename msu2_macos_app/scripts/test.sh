@@ -24,6 +24,8 @@ for source in controller diagnostic_log serial_guard flash preview; do
 done
 "$CXX" "${FLAGS[@]}" -fobjc-arc -c "$APP_ROOT/src/platform.mm" -o "$BUILD_DIR/tests/obj/platform.o"
 OBJECTS+=("$BUILD_DIR/tests/obj/platform.o")
+"$CXX" "${FLAGS[@]}" "$APP_ROOT/tests/test_diagnostic_log.cpp" "$BUILD_DIR/tests/obj/diagnostic_log.o" -o "$BUILD_DIR/tests/test_diagnostic_log"
+"$BUILD_DIR/tests/test_diagnostic_log"
 "$CXX" "${FLAGS[@]}" "$APP_ROOT/tests/test_flash.cpp" "$APP_ROOT/src/flash.cpp" -o "$BUILD_DIR/tests/test_flash"
 "$BUILD_DIR/tests/test_flash"
 "$CXX" "${FLAGS[@]}" "$APP_ROOT/tests/test_preview.cpp" "$APP_ROOT/src/preview.cpp" "$BUILD_DIR/tests/obj/core_image.o" -o "$BUILD_DIR/tests/test_preview"

@@ -3,7 +3,13 @@
 #include <stdexcept>
 
 namespace msu2app {
-DiagnosticLog::DiagnosticLog(const std::string& path,const std::string& wall_time):out_(path){
+DiagnosticLog::DiagnosticLog(const std::string& path,const std::string& wall_time):owned_output_(path),out_(owned_output_){
+    start(wall_time);
+}
+DiagnosticLog::DiagnosticLog(std::ostream& output,const std::string& wall_time):out_(output){
+    start(wall_time);
+}
+void DiagnosticLog::start(const std::string& wall_time){
     if(!out_)throw std::runtime_error("無法建立診斷紀錄");
     pending_.reserve(capacity);writing_.reserve(capacity);
     out_<<"t_us,kind,stage,result,frame,patch,v0,v1,v2,v3,v4,v5,rx_len,rx_hex,detail\n";

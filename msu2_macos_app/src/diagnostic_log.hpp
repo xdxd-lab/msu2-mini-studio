@@ -61,6 +61,9 @@ public:
     struct Status{std::uint64_t written=0,lost_full=0,lost_after_failure=0;bool write_failed=false;std::int64_t failed_at_us=-1;};
     // wall_time fills the "log begin" row; it is not parsed.
     DiagnosticLog(const std::string& path,const std::string& wall_time);
+    // Internal dependency injection for deterministic output-failure tests.
+    // The stream must outlive this log; only the writer uses it after construction.
+    DiagnosticLog(std::ostream& output,const std::string& wall_time);
     ~DiagnosticLog()override;
     // Stops the writer, drains pending events and writes "log,end". Idempotent.
     Status finish();
@@ -71,10 +74,11 @@ public:
     void record(const msu2::TraceEvent& e)noexcept override;
 private:
     static constexpr std::size_t capacity=16384;
+    void start(const std::string& wall_time);
     void run();
     std::uint64_t status_lost_full()const;
     void write(const msu2::TraceEvent& e);
-    const std::int64_t origin_=msu2::trace_now_ns();std::ofstream out_;
+    const std::int64_t origin_=msu2::trace_now_ns();std::ofstream owned_output_;std::ostream& out_;
     mutable std::mutex mutex_;std::condition_variable wake_;bool done_=false;
     std::uint64_t lost_=0;std::int64_t first_lost_ns_=0,last_lost_ns_=0; // guarded by mutex_, reset per interval
     Status status_; // guarded by mutex_
