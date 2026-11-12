@@ -1,14 +1,23 @@
 # MSU2 Mini project instructions
 
-## Active collaboration (user-confirmed roles, 2026-11-05)
+## Collaboration roles
 
-- p1 is the PM: scope, coordination, review, and final reports. p2 owns tests,
-  builds, and hardware. p3 (Claude Opus) owns difficult analysis and approved
-  product changes; p3 must not access the device. Discover current pane IDs
-  instead of assuming historical IDs still apply.
-- The user's latest role and model choices override the historical model
-  defaults below. Do not change another agent's model on your own. When the
-  three-party workflow is active, use p2 for verification and p3 for analysis.
+The user's current instructions override this file, including role and model
+choices; live terminal or session IDs and the CLI's current model are not
+recorded here. Do not change another agent's model on your own. A multi-agent
+team may use these four roles; a solo contributor can skip the role list.
+
+- PM: scope, priority, coordination, final reports, relaying questions and
+  approvals to the user. Does not read product code or diffs.
+- DEV: implementation, tests, hard debugging, technical decisions; opens PRs.
+  Merge, tag and release only with the user's explicit approval for that object.
+- QA1: fixed test steps, CI and status checks, scheduled checks, simple file
+  and diff checks, post-release verification.
+- QA2: first-pass CI failure triage, screenshot/visual acceptance, comparing
+  external feedback with code behaviour, research. Does not change product code
+  or merge.
+- Only the designated hardware tester may open the device; PM, DEV, and
+  analysis roles do not access it.
 - Keep each edit scoped to an agreed owner. Refactors must preserve protocol,
   ACK acceptance, timeouts, and display scheduling unless explicitly in scope.
 - Start with README.md, docs/HANDOFF_zh-TW.md and docs/STATUS_zh-TW.md;
@@ -17,6 +26,22 @@
 - Keep experiments in project-local results/ with isolated BUILD_DIR values.
   Do not overwrite a frozen candidate or the user's authorized App. Raw evidence
   and generated apps are not part of the source repository.
+
+## Team messaging (optional, local tooling)
+
+Applies only to a team that has the local Herdr `hc` and `hcmsg` tools; neither
+is a prerequisite for contributing. In Herdr, `hc ls` shows the live terminals
+and their groups; check the current group and IDs there instead of assuming
+earlier ones. Members message each other with
+`hcmsg <recipient> "<flag>" "<content>"`; the tool adds the header, sequence
+number and time. Flags request a reply: `CBK` (report when done, failed or
+blocked), `ACK` (reply on receipt), or none (notification). A reply carries
+`RE <original ID> <OK|FAIL|BLOCK|ACK>` and no request flag. Start a task
+message with its task code and a full-width colon; results point `RE` at the
+original assignment. One topic per message, about 600 characters at most; put
+longer content in a file and send the path. Merge, release, deletion, pushing
+and settings changes need the user's approval for that specific object, valid
+once and re-checked if the object (e.g. the commit) changes.
 
 ## Historical default model routing and hardware invariants
 
