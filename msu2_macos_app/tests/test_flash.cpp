@@ -81,10 +81,14 @@ msu2app::FlashPlan plan_at(std::uint32_t page) {
     for (std::size_t i = 0; i < bytes.size(); ++i) bytes[i] = static_cast<std::uint8_t>((i * 17 + 31) & 255);
     return msu2app::make_flash_plan(std::move(bytes), page);
 }
-msu2app::FlashOptions fast_options(bool verify = true) {
+// Success fixtures reply immediately, but host scheduling (especially ASan)
+// must not turn a valid fragmented reply into an accidental timeout.
+constexpr msu2::Milliseconds success_timeout{1000};
+constexpr msu2::Milliseconds expected_timeout{2};
+msu2app::FlashOptions success_options(bool verify = true) {
     msu2app::FlashOptions options;
-    options.io_timeout = msu2::Milliseconds{2};
-    options.erase_timeout = msu2::Milliseconds{2};
+    options.io_timeout = success_timeout;
+    options.erase_timeout = success_timeout;
     options.erase_settle = msu2::Milliseconds{0};
     options.verify_readback = verify;
     return options;
@@ -113,7 +117,7 @@ void test_encoding_and_validation() {
     throws([&] { flash_read_command(flash_total_bytes); }, "capacity");
     FakeFlash fake;
     plan.start_page = 4095;
-    throws([&] { execute_flash(fake, plan, fast_options()); }, "capacity");
+    throws([&] { execute_flash(fake, plan, success_options()); }, "capacity");
     check(fake.writes.empty(), "invalid edited plan must not touch transport");
     throws([&] { read_flash_bytes(fake, flash_total_bytes - 1, 2); }, "capacity");
     check(fake.writes.empty(), "invalid read must not touch transport");
@@ -123,7 +127,7 @@ void test_roundtrip_and_display() {
     FakeFlash fake;
     const auto plan = plan_at(3826);
     std::vector<msu2app::FlashProgress> events;
-    const auto result = msu2app::execute_flash(fake, plan, fast_options(),
+    const auto result = msu2app::execute_flash(fake, plan, success_options(),
         [&](const auto& p) { events.push_back(p); });
     check(result.pages_written == 100 && result.bytes_verified == 25600 && !result.cancelled,
           "all pages must have response and every byte must read back");
@@ -137,11 +141,11 @@ void test_roundtrip_and_display() {
           events.back().phase == msu2app::FlashPhase::complete, "progress phase sequence");
     check(fake.memory[3826 * 256 - 1] == 0xAA && fake.memory[3926 * 256] == 0xAA,
           "mock page erase does not exceed requested range (not a hardware assertion)");
-    msu2app::display_flash_image(fake, 3826, msu2::Milliseconds{2});
+    msu2app::display_flash_image(fake, 3826, success_timeout);
     check(fake.writes.back() == std::vector<std::uint8_t>({2, 0, 0, 0, 0, 0,
           2, 1, 0, 160, 0, 80, 2, 3, 0, 14, 242, 0}), "Flash display wire bytes");
     const auto last = msu2app::read_flash_bytes(fake, msu2app::flash_total_bytes - 1, 1,
-                                               msu2::Milliseconds{2});
+                                               success_timeout);
     check(last == std::vector<std::uint8_t>{0xAA}, "last byte range valid");
 }
 
@@ -150,49 +154,53 @@ void test_failure_and_cancellation() {
     {
         FakeFlash fake;
         fake.suppress_erase = true;
-        throws([&] { msu2app::execute_flash(fake, plan, fast_options(false)); }, "Flash erase response timeout");
+        auto options = success_options(false); options.erase_timeout = expected_timeout;
+        throws([&] { msu2app::execute_flash(fake, plan, options); }, "Flash erase response timeout");
         check(fake.writes.size() == 1 && fake.commits == 0, "erase timeout must stop without retry");
     }
     {
         FakeFlash fake;
         fake.wrong_erase_reply = true;
-        throws([&] { msu2app::execute_flash(fake, plan, fast_options(false)); }, "response timeout");
+        auto options = success_options(false); options.erase_timeout = expected_timeout;
+        throws([&] { msu2app::execute_flash(fake, plan, options); }, "response timeout");
         check(fake.commits == 0, "unrelated six-byte response cannot acknowledge erase");
     }
     {
         FakeFlash fake;
         fake.suppress_commit = true;
-        throws([&] { msu2app::execute_flash(fake, plan, fast_options(false)); }, "page 0 write response timeout");
+        auto options = success_options(false); options.io_timeout = expected_timeout;
+        throws([&] { msu2app::execute_flash(fake, plan, options); }, "page 0 write response timeout");
         check(fake.commits == 1 && fake.writes.size() == 2, "uncertain page not automatically retried");
     }
     {
         FakeFlash fake;
         fake.disconnect_commit = true;
-        throws([&] { msu2app::execute_flash(fake, plan, fast_options(false)); }, "USB disconnect");
+        throws([&] { msu2app::execute_flash(fake, plan, success_options(false)); }, "USB disconnect");
         check(fake.writes.size() == 2, "transport exceptions propagate without retries");
     }
     {
         FakeFlash fake;
         fake.wrong_read_address = true;
-        throws([&] { msu2app::execute_flash(fake, plan, fast_options()); }, "Flash read");
+        auto options = success_options(); options.io_timeout = expected_timeout;
+        throws([&] { msu2app::execute_flash(fake, plan, options); }, "Flash read");
         check(fake.writes.size() == 1 && fake.memory[0] == 0xAA,
               "incompatible read response must fail before destructive erase");
     }
     {
         FakeFlash fake;
         fake.corrupt_reads_after_commit = true;
-        throws([&] { msu2app::execute_flash(fake, plan, fast_options()); }, "readback mismatch");
+        throws([&] { msu2app::execute_flash(fake, plan, success_options()); }, "readback mismatch");
         check(fake.commits == 100, "write replies cannot hide readback mismatch");
     }
     {
         FakeFlash fake;
-        const auto result = msu2app::execute_flash(fake, plan, fast_options(), {}, [] { return true; });
+        const auto result = msu2app::execute_flash(fake, plan, success_options(), {}, [] { return true; });
         check(result.cancelled && !result.erase_started && fake.writes.empty(), "cancel before erase is harmless");
     }
     {
         FakeFlash fake;
         bool stop = false;
-        const auto result = msu2app::execute_flash(fake, plan, fast_options(false),
+        const auto result = msu2app::execute_flash(fake, plan, success_options(false),
             [&](const msu2app::FlashProgress& p) {
                 if (p.phase == msu2app::FlashPhase::writing && p.completed == 1) stop = true;
             }, [&] { return stop; });
@@ -202,7 +210,7 @@ void test_failure_and_cancellation() {
     }
     {
         FakeFlash fake;
-        auto options = fast_options(); options.io_timeout = msu2::Milliseconds{0};
+        auto options = success_options(); options.io_timeout = msu2::Milliseconds{0};
         throws([&] { msu2app::execute_flash(fake, plan, options); }, "positive");
         check(fake.writes.empty(), "invalid timing fails before I/O");
     }
