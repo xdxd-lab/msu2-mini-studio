@@ -1,5 +1,6 @@
 #pragma once
 #include "msu2/image.hpp"
+#include "msu2app/source_metadata.hpp"
 #include <memory>
 #include <string>
 #include <vector>
@@ -15,7 +16,7 @@ class ScreenCapture {
 public:
     ScreenCapture();
     ~ScreenCapture();
-    msu2::Image grab();
+    msu2::Image grab(SourceMetadata* metadata=nullptr);
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

@@ -10,6 +10,8 @@ FLAGS=(-std=c++17 -O1 -g -Wall -Wextra -Wpedantic -mmacosx-version-min=13.0 -pth
 if [[ "${SANITIZERS:-0}" == 1 ]]; then
     FLAGS+=(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
 fi
+"$CXX" "${FLAGS[@]}" "$APP_ROOT/tests/test_source_metadata.cpp" -o "$BUILD_DIR/tests/test_source_metadata"
+"$BUILD_DIR/tests/test_source_metadata"
 FRAMEWORKS=(-framework Cocoa -framework ScreenCaptureKit -framework CoreMedia -framework CoreVideo -framework ImageIO -framework IOKit -framework CoreGraphics)
 OBJECTS=()
 for source in protocol delta image session transport priority; do
@@ -36,6 +38,14 @@ OBJECTS+=("$BUILD_DIR/tests/obj/platform.o")
 "$BUILD_DIR/tests/test_session_trace"
 "$CXX" "${FLAGS[@]}" "$APP_ROOT/tests/test_controller_trace.cpp" "${OBJECTS[@]}" "${FRAMEWORKS[@]}" -o "$BUILD_DIR/tests/test_controller_trace"
 "$BUILD_DIR/tests/test_controller_trace" "$BUILD_DIR/trace-test-evidence"
+# The positive metadata fixture supplies a fake platform at link time, so it
+# follows the desktop path without ScreenCaptureKit permission or a real screen.
+METADATA_OBJECTS=()
+for object in "${OBJECTS[@]}"; do
+    if [[ "$object" != "$BUILD_DIR/tests/obj/platform.o" ]]; then METADATA_OBJECTS+=("$object"); fi
+done
+"$CXX" "${FLAGS[@]}" "$APP_ROOT/tests/test_controller_metadata_positive.cpp" "${METADATA_OBJECTS[@]}" "${FRAMEWORKS[@]}" -o "$BUILD_DIR/tests/test_controller_metadata_positive"
+"$BUILD_DIR/tests/test_controller_metadata_positive" "$BUILD_DIR/metadata-positive-evidence"
 "$CXX" "${FLAGS[@]}" "$APP_ROOT/tests/test_controller_edges.cpp" "${OBJECTS[@]}" "${FRAMEWORKS[@]}" -o "$BUILD_DIR/tests/test_controller_edges"
 "$BUILD_DIR/tests/test_controller_edges" "$BUILD_DIR/test-evidence"
 "$CXX" "${FLAGS[@]}" "$APP_ROOT/tests/test_download.cpp" "${OBJECTS[@]}" "${FRAMEWORKS[@]}" -o "$BUILD_DIR/tests/test_download"
