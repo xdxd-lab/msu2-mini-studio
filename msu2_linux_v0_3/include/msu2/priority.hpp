@@ -1,6 +1,7 @@
 #pragma once
 
 #include "msu2/protocol.hpp"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -39,6 +40,7 @@ struct PrioritySelection {
     unsigned frame_id=0;
     PriorityMode layout=PriorityMode::off; // off means normal full/diff planning
     bool partitioned=false;
+    bool dirty_override=false; // overdue side chosen at an available dispatch
     PriorityRegion region{"full", {0,0,screen_width,screen_height}};
     std::size_t region_index=0;
     bool switched=false;
@@ -74,7 +76,8 @@ public:
                              std::size_t queue_dropped_total, double now_ms,
                              bool maintenance_full=false,
                              bool predicted_maintenance_valid=false,
-                             double predicted_maintenance_ms=0);
+                             double predicted_maintenance_ms=0,
+                             std::array<bool,2> side_dirty={false,false});
     bool skip_side(const PrioritySelection& selection,
                    bool predicted_selected_valid, double predicted_selected_ms,
                    double now_ms) const;
@@ -92,6 +95,7 @@ private:
     std::vector<RegionCounters>& counts(PriorityMode mode);
     const std::vector<RegionCounters>& counts(PriorityMode mode) const;
 
+    std::array<double,2> side_dirty_since_{{-1,-1}};
     PriorityMode requested_;
     PriorityMode active_=PriorityMode::off;
     double period_ms_;

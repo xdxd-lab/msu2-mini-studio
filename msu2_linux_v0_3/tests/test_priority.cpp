@@ -370,6 +370,44 @@ void bounded_center_side_probe() {
               "each stale side records a newer source frame after its bounded probe");
     }
 }
+
+// Virtual times keep the dirty deadline regression independent of host load.
+void dirty_side_dispatch_deadline() {
+    auto pick=[](PriorityScheduler& scheduler,unsigned id,double now,
+                 std::array<bool,2> dirty=std::array<bool,2>{{false,false}}) {
+        return scheduler.select(id,true,true,90,0,now,false,false,0,dirty);
+    };
+    auto done=[](PriorityScheduler& scheduler,msu2::PrioritySelection selection,
+                 double now,SlotOutcome outcome=SlotOutcome::sent,bool full=false) {
+        scheduler.complete(selection,outcome,20,now,full);
+    };
+
+ // Missing all nominal side slots cannot indefinitely suppress dispatch.
+ PriorityScheduler s(PriorityMode::center3,60);
+ auto x=pick(s,0,0,{true,true});done(s,x,1);
+ x=pick(s,3,999,{true,true});check(x.region_index==0,"no early override");done(s,x,999);
+ x=pick(s,6,1000,{true,true});check(x.region_index==1,"dirty deadline must dispatch left despite modulo gaps");
+ check(!s.skip_side(x,true,90,1000),"overdue bypasses busy skip");done(s,x,1001);
+ x=pick(s,9,1002,{true,true});check(x.region_index==2,"right oldest after left success");done(s,x,1003);
+ x=pick(s,12,1004,{false,false});check(x.region_index==0,"static sides not forced");done(s,x,1005,SlotOutcome::unchanged);
+ check(s.counters(PriorityMode::center3,1).sent==1 && s.counters(PriorityMode::center3,2).sent==1,"unchanged not sent");
+ // Difference disappears before deadline: a new difference starts a new wait.
+ PriorityScheduler r(PriorityMode::center3,60);
+ x=pick(r,0,0,{true,false});done(r,x,1);
+ x=pick(r,3,900,{false,false});done(r,x,901,SlotOutcome::unchanged);
+ x=pick(r,6,1000,{true,false});check(x.region_index==0,"new dirty starts fresh");done(r,x,1001);
+ x=pick(r,9,1999,{true,false});check(x.region_index==0,"persistent changes do not expire early");done(r,x,1999);
+ x=pick(r,12,2000,{true,false});check(x.region_index==1,"persistent dirty expires without restart");done(r,x,2001);
+ // A full send covers both sides and clears prior pending dirtiness.
+ PriorityScheduler f(PriorityMode::center3,60);
+ x=pick(f,0,0,{true,true});done(f,x,1);
+ x=pick(f,3,900,{true,true});done(f,x,901,SlotOutcome::sent,true);
+ x=pick(f,6,1000,{true,true});check(x.region_index==0,"full clears both timers");done(f,x,1001);
+ x=pick(f,9,1999,{true,true});check(x.region_index==0,"full reset no early expiry");done(f,x,1999);
+ // No side differences, even at late times and a busy prior transfer.
+ PriorityScheduler quiet(PriorityMode::center3,60);
+ for(unsigned i=0;i<8;++i){x=pick(quiet,i*3,i*2000);check(x.region_index==0,"static sides never override");done(quiet,x,i*2000+1,SlotOutcome::unchanged);}
+}
 }
 
 int main() {
@@ -383,6 +421,7 @@ int main() {
         hysteresis_and_reference_invalidation();
         maintenance_full_semantics();
         bounded_center_side_probe();
+        dirty_side_dispatch_deadline();
         std::cout<<"PASS "<<checks<<" priority scheduler assertions\n";
         return 0;
     } catch(const std::exception& e) {

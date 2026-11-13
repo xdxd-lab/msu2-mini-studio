@@ -108,7 +108,7 @@ PrioritySelection PriorityScheduler::select(unsigned frame_id,bool reference_val
                                             bool predicted_full_valid,double predicted_full_ms,
                                             std::size_t queue_dropped_total,double now_ms,
                                             bool maintenance_full,bool predicted_maintenance_valid,
-                                            double predicted_maintenance_ms) {
+                                            double predicted_maintenance_ms,std::array<bool,2> side_dirty) {
     if(pending_) throw std::logic_error("complete the previous priority slot first");
     if(!std::isfinite(now_ms) || now_ms<0 ||
        (predicted_full_valid && (!std::isfinite(predicted_full_ms) || predicted_full_ms<0)) ||
@@ -154,11 +154,28 @@ PrioritySelection PriorityScheduler::select(unsigned frame_id,bool reference_val
             }
         }
     }
+    // Observe against the committed canvas, not last_synced (which includes
+    // unchanged). Content may keep changing without restarting its dirty wait.
+    for(std::size_t i=0;i<2;++i) {
+        if(active_!=PriorityMode::center3 || !side_dirty[i]) side_dirty_since_[i]=-1;
+        else if(side_dirty_since_[i]<0) side_dirty_since_[i]=now_ms;
+    }
     result.layout=active_;
     if(active_!=PriorityMode::off) {
         const auto& regions=priority_regions(active_);
         result.partitioned=true;
         result.region_index=(std::uint64_t(frame_id)-epoch_frame_id_)%regions.size();
+        if(active_==PriorityMode::center3) {
+            int oldest=-1;
+            for(int i=0;i<2;++i)
+                if(side_dirty_since_[i]>=0 && now_ms-side_dirty_since_[i]>=1000.0 &&
+                   (oldest<0 || side_dirty_since_[i]<side_dirty_since_[oldest])) oldest=i;
+            if(oldest>=0) {
+                result.region_index=std::size_t(oldest)+1;
+                result.dirty_override=true;
+                result.trigger="side_dirty_deadline";
+            }
+        }
         result.region=regions[result.region_index];
     }
     pending_=true;
@@ -173,6 +190,9 @@ bool PriorityScheduler::skip_side(const PrioritySelection& selection,
        (predicted_selected_valid && (!std::isfinite(predicted_selected_ms) || predicted_selected_ms<0)))
         throw std::invalid_argument("selected prediction must be finite and nonnegative");
     if(selection.layout!=PriorityMode::center3 || selection.region_index==0) return false;
+    // This is a dispatch opportunity, not a successful-send or LCD deadline.
+    // No transfer is interrupted; at most one oldest dirty side is selected.
+    if(selection.dirty_override) return false;
     if(has_actual_ && last_actual_ms_>=0.90*period_ms_) return true;
     if(!predicted_selected_valid || predicted_selected_ms<0.80*period_ms_) return false;
     // A stale high estimate cannot improve if quiet center slots and skipped
@@ -230,6 +250,11 @@ void PriorityScheduler::complete(const PrioritySelection& selection,SlotOutcome 
                 c.last_synced_frame_id=selection.frame_id;
                 c.consecutive_missed=0;
             }
+    }
+    if(outcome==SlotOutcome::sent || outcome==SlotOutcome::unchanged) {
+        if(!selection.partitioned || full_refresh) side_dirty_since_={{-1,-1}};
+        else if(selection.layout==PriorityMode::center3 && selection.region_index>0)
+            side_dirty_since_[selection.region_index-1]=-1;
     }
     // A no-change or deliberately released slot still consumed CPU time.
     // Refresh the busy observation so an old heavy transfer cannot make all

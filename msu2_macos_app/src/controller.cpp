@@ -300,7 +300,20 @@ struct Controller::Impl {
                     scheduler=msu2::PriorityScheduler(msu2::parse_priority_mode(s.priority),s.fps);estimator=msu2::HostCostEstimator{};
                 }
                 auto prediction=estimator.predict(plan.wire_bytes,plan.patches.size(),frame.capture_ms+ms(Clock::now()-before));
-                auto selection=scheduler.select(frame.id,planner.has_reference(),prediction.valid,prediction.ms,gaps,ms(Clock::now()-start));
+                // Inspect both sides before selection: source-ID gaps may skip every
+                // nominal side slot. Compare exact bytes; never log pixel data.
+                std::array<bool,2> side_dirty{{false,false}};
+                if(s.priority=="center3" && planner.has_reference() && committed.size()==current.size()) {
+                    for(std::size_t side=0;side<2;++side) {
+                        const auto rect=msu2::priority_regions(msu2::PriorityMode::center3)[side+1].rect;
+                        for(int y=rect.y;y<rect.y+rect.height && !side_dirty[side];++y) {
+                            const auto offset=std::size_t((y*msu2::screen_width+rect.x)*2);
+                            side_dirty[side]=!std::equal(current.begin()+offset,
+                                current.begin()+offset+rect.width*2,committed.begin()+offset);
+                        }
+                    }
+                }
+                auto selection=scheduler.select(frame.id,planner.has_reference(),prediction.valid,prediction.ms,gaps,ms(Clock::now()-start),false,false,0,side_dirty);
                 auto outcome=msu2::SlotOutcome::failed;msu2::TransferStats stats;std::string kind=msu2::update_kind_name(plan.kind);
                 try{
                     if(selection.partitioned){
