@@ -52,7 +52,7 @@ std::string exercise(const std::string& root,bool enabled){
 void verify(const std::string& dir){
     std::ifstream in(dir+"/diagnostics.csv");check(bool(in),"missing diagnostics CSV");std::string line;check(bool(std::getline(in,line)),"missing CSV header");
     check(line=="t_us,kind,stage,result,frame,patch,v0,v1,v2,v3,v4,v5,rx_len,rx_hex,detail","unexpected CSV header");
-    bool meta=false,connect=false,capture=false,frame=false,patch=false,ack=false,stream_end=false,log_end=false;unsigned rows=0, event_rows=0, handshakes=0;
+    bool meta=false,connect=false,capture=false,identity=false,pts=false,callback=false,frame=false,patch=false,ack=false,stream_end=false,log_end=false;unsigned rows=0, event_rows=0, handshakes=0;
     std::int64_t lost_total=0, end_written=-1, end_lost=-1, end_failed=-1;
     while(std::getline(in,line)){auto f=parse(line);check(f.size()==15,"CSV field count");++rows;
         check(!log_end,"row after log end");
@@ -74,6 +74,9 @@ void verify(const std::string& dir){
         if(f[1]=="session"&&f[2]=="meta"&&f[3]=="stream_begin"){meta=true;check(f[6]=="1"&&f[7]=="30"&&f[8]=="1"&&f[9]=="1"&&f[10]=="60"&&f[11]=="30","stream metadata values");check(f[14].find("source=moving")!=std::string::npos&&f[14].find("csv=stream_1.csv")!=std::string::npos,"stream metadata detail");}
         if(f[1]=="connect"&&f[2]=="open"&&f[3]=="begin"){connect=true;check(f[14]=="/dev/offline-trace","CSV quoted detail");}
         if(f[1]=="capture"&&f[2]=="source")capture=true;
+        if(f[1]=="capture"&&f[2]=="identity"){identity=true;check(f[3]=="unavailable"&&f[13].empty(),"fake source identity should be unavailable without RX bytes");}
+        if(f[1]=="capture"&&f[2]=="pts_opaque"){pts=true;check(f[3]=="unavailable"&&f[13].empty(),"fake source opaque PTS should be unavailable without RX bytes");}
+        if(f[1]=="frame"&&f[2]=="callback_to_host"){callback=true;check(f[3]=="unavailable"&&f[6]=="-1"&&f[13].empty(),"fake source callback age should be unavailable (-1) without RX bytes");}
         if(f[1]=="frame"&&f[2]=="done")frame=true;
         if(f[1]=="patch"&&f[2]=="rect"){patch=true;check(std::stoll(f[4])>=0&&std::stoll(f[5])>=0,"patch context");}
         if(f[1]=="rx"&&f[2]=="window_ack"&&f[3]=="ok")ack=true;
@@ -81,7 +84,7 @@ void verify(const std::string& dir){
         if(f[1]=="log"&&f[2]=="lost"){lost_total+=std::stoll(f[6]);check(std::stoll(f[6])>0&&std::stoll(f[7])==lost_total,"loss accounting");}
         if(f[1]=="log"&&f[2]=="end"){log_end=true;end_written=std::stoll(f[6]);end_lost=std::stoll(f[7]);end_failed=std::stoll(f[8]);}
     }
-    check(rows>0&&meta&&connect&&capture&&frame&&patch&&ack&&stream_end&&log_end,"missing expected trace events");
+    check(rows>0&&meta&&connect&&capture&&identity&&pts&&callback&&frame&&patch&&ack&&stream_end&&log_end,"missing expected trace events");
     check(handshakes==2,"expected two successful handshakes");
     check(end_written==event_rows&&end_lost==lost_total&&end_failed==0,"log end counts do not match rows");
 }

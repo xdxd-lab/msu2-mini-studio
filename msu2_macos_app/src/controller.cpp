@@ -41,9 +41,10 @@ struct Source {
         if(settings.source=="image")image=settings.prepared_image?*settings.prepared_image:load_image(settings.image_path);
         else if(settings.source=="desktop")capture=std::make_unique<ScreenCapture>();
     }
-    msu2::Image get(unsigned n){
+    msu2::Image get(unsigned n,SourceMetadata* metadata=nullptr){
+        if(metadata)*metadata={};
         if(deps.source)return deps.source(settings,n);
-        if(capture)return capture->grab();
+        if(capture)return capture->grab(metadata);
         if(settings.source=="image")return image;
         return msu2::make_pattern(settings.source,n);
     }
@@ -208,7 +209,7 @@ struct Controller::Impl {
         std::this_thread::sleep_for(msu2::Milliseconds(s.hold_open_ms));
         log("單張已交付主機傳輸，送後保持 "+std::to_string(s.hold_open_ms)+" ms；連線保留");
     }
-    struct Captured{unsigned id=0;msu2::Image image;Clock::time_point captured;double capture_ms=0;};
+    struct Captured{unsigned id=0;msu2::Image image;Clock::time_point captured;double capture_ms=0;SourceMetadata metadata;int repeated=-1;};
     void stream(const Settings& s){
         // Validate permissions/source before claiming the device.
         recovery_attempts=0;auto source=std::make_unique<Source>(s,deps);open(s);if(!session||stopped())return;
@@ -228,14 +229,19 @@ struct Controller::Impl {
         // and dropped_total counts frame id gaps, not LatestFrame replacements.
         const auto start=Clock::now();const auto period=std::chrono::nanoseconds(1000000000ull/s.fps);
         std::thread producer([&,source=std::move(source)]()mutable{
-            try{unsigned id=0;auto next=Clock::now();
+            try{unsigned id=0;SourceReadTracker source_reads;auto next=Clock::now();
                 while(!stopped()&&!producer_stop){
                     if(paused){std::this_thread::sleep_for(std::chrono::milliseconds(20));next=Clock::now();continue;}
-                    auto before=Clock::now();auto image=source->get(id);auto after=Clock::now();
-                    ++captured_total;const auto captured_id=id;queue.put({id++,std::move(image),after,ms(after-before)});next+=period;
+                    SourceMetadata metadata;auto before=Clock::now();auto image=source->get(id,diag?&metadata:nullptr);auto after=Clock::now();
+                    const int repeated=diag?source_reads.observe(metadata):-1;
+                    ++captured_total;const auto captured_id=id;queue.put({id++,std::move(image),after,ms(after-before),metadata,repeated});next+=period;
                     // Source follows wall time; skip elapsed capture slots, never build backlog.
                     std::int64_t missed_now=0;
                     if(next<Clock::now()){auto missing=(Clock::now()-next)/period;id+=static_cast<unsigned>(missing);capture_missed+=static_cast<std::uint64_t>(missing);next+=period*missing;missed_now=missing;}
+                    if(diag){
+                        trace("capture","identity",metadata.available?"available":"unavailable",captured_id,-1,{metadata.epoch,metadata.sequence,repeated,metadata.callback_ns});
+                        trace("capture","pts_opaque",metadata.available?(metadata.pts_numeric?"numeric":"invalid"):"unavailable",captured_id,-1,{metadata.pts_value,metadata.pts_timescale,metadata.pts_epoch,metadata.pts_flags});
+                    }
                     if(diag)trace("capture","source","ok",captured_id,-1,{msu2::trace_us(after-before),missed_now,std::int64_t(capture_missed.load()),std::int64_t(queue.dropped())});
                     while(Clock::now()<next&&!stopped()&&!producer_stop&&!paused)std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }queue.close();
@@ -269,6 +275,8 @@ struct Controller::Impl {
                 if(seen_id&&frame.id>previous_id+1){id_gap=frame.id-previous_id-1;gaps+=frame.id-previous_id-1;}previous_id=frame.id;seen_id=true;
                 auto before=Clock::now();
                 if(diag&&session){session->set_trace_context(frame.id,-1);}
+                if(diag){const auto age=callback_age_us(frame.metadata,msu2::trace_now_ns());
+                    trace("frame","callback_to_host",!frame.metadata.available?"unavailable":(age<0?"invalid":"ok"),frame.id,-1,{age,frame.metadata.epoch,frame.metadata.sequence,frame.repeated});}
                 if(diag){
                     trace("frame","take","ok",frame.id,-1,{msu2::trace_us(before-frame.captured),msu2::trace_us(before-take_begin),id_gap,std::int64_t(gaps),std::int64_t(frame.capture_ms*1000)});}
                 msu2::to_rgb565(frame.image,current);
