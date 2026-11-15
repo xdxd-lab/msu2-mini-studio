@@ -1,0 +1,36 @@
+name: macOS 26 manual offline verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Superseded builds share a group only on the same branch or pull request.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check documentation file links
+        run: python3 scripts/check_docs.py
+      - name: Check native build script syntax
+        run: |
+          for script in msu2_macos_app/scripts/*.sh; do
+            bash -n "$script"
+          done
+      - name: Build App and CLI
+        run: BUILD_DIR="$RUNNER_TEMP/msu2-build" bash msu2_macos_app/scripts/build.sh
+      - name: Run offline tests
+        run: BUILD_DIR="$RUNNER_TEMP/msu2-tests" bash msu2_macos_app/scripts/test.sh
+      - name: Run ASan and UBSan tests
+        run: SANITIZERS=1 BUILD_DIR="$RUNNER_TEMP/msu2-sanitized" bash msu2_macos_app/scripts/test.sh
+      - name: Link hardware driver without running it
+        run: BUILD_DIR="$RUNNER_TEMP/msu2-build" bash msu2_macos_app/scripts/build_hardware_driver.sh
