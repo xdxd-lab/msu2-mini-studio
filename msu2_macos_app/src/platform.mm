@@ -1,3 +1,5 @@
+#include "msu2/trace.hpp"
+#include <atomic>
 #import <Cocoa/Cocoa.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <CoreMedia/CoreMedia.h>
@@ -41,6 +43,8 @@ struct CaptureState {
     std::mutex mutex;
     std::condition_variable changed;
     msu2::Image latest;
+    msu2app::SourceMetadata metadata;
+    CaptureState(){static std::atomic<std::int64_t> next{0};metadata.epoch=++next;}
     std::string error;
 };
 struct Completion {
@@ -72,6 +76,7 @@ void wait_completion(const std::shared_ptr<Completion>& state, const char* opera
 }
 - (void)stream:(SCStream *)stream didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer ofType:(SCStreamOutputType)type {
     (void)stream;
+    const auto callback_ns=msu2::trace_now_ns();
     if (type != SCStreamOutputTypeScreen || !CMSampleBufferIsValid(sampleBuffer)) return;
     NSArray *attachments = (__bridge NSArray *)CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, false);
     if (attachments.count) {
@@ -105,7 +110,13 @@ void wait_completion(const std::shared_ptr<Completion>& state, const char* opera
     CVPixelBufferUnlockBaseAddress(pixels, kCVPixelBufferLock_ReadOnly);
     if (!base) return;
     std::lock_guard<std::mutex> lock(captureState->mutex);
+    // Publish metadata and image under the same lock; idle callbacks do not advance seq.
     captureState->latest = std::move(result);
+    auto& meta=captureState->metadata;
+    ++meta.sequence;meta.available=true;meta.callback_ns=callback_ns;
+    const auto pts=CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
+    meta.pts_value=pts.value;meta.pts_timescale=pts.timescale;meta.pts_epoch=pts.epoch;
+    meta.pts_flags=pts.flags;meta.pts_numeric=CMTIME_IS_NUMERIC(pts)&&pts.timescale>0;
     captureState->changed.notify_all();
 }
 @end
@@ -253,12 +264,13 @@ ScreenCapture::ScreenCapture() : impl_(std::make_unique<Impl>()) {
     }
 }
 ScreenCapture::~ScreenCapture() = default;
-msu2::Image ScreenCapture::grab() {
+msu2::Image ScreenCapture::grab(SourceMetadata* metadata) {
     std::unique_lock<std::mutex> lock(impl_->state->mutex);
     if (!impl_->state->changed.wait_for(lock, std::chrono::seconds(3), [&] {
         return !impl_->state->latest.rgb.empty() || !impl_->state->error.empty();
     })) throw std::runtime_error("尚未收到桌面影格；請確認螢幕錄製權限與顯示器狀態。");
     if (!impl_->state->error.empty()) throw std::runtime_error(impl_->state->error);
+    if(metadata)*metadata=impl_->state->metadata;
     return impl_->state->latest;
 }
 }
