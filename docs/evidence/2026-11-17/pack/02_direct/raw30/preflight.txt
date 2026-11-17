@@ -1,0 +1,7 @@
+CGPreflightScreenCaptureAccess=true (prior system-context result, exit 0)
+sha256 msu2ctl 82d8f4b8fb423d798f936510d2e6041b765441806575777ab4bd2b6aa9a1b2fd expected=82d8f4b8fb423d798f936510d2e6041b765441806575777ab4bd2b6aa9a1b2fd match=True
+sha256 MSU2MiniStudio abe86bc11c2dd830317f749f31922f1b623a54a0cc29b87bf9d693c5da19e8ae expected=abe86bc11c2dd830317f749f31922f1b623a54a0cc29b87bf9d693c5da19e8ae match=True
+lsof_exit=1 stdout='' stderr=''
+target_flock=available
+pgrep_msu2ctl_exit=1 output=''
+pgrep_MSU2MiniStudio_exit=1 output=''

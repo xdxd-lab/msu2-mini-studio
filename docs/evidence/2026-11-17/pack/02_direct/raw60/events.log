@@ -1,0 +1,8 @@
+20261117T014719 診斷紀錄已啟用（等級 1）：diagnostics.csv；log,end 於程式正常結束時寫入
+20261117T014719 檢查 cu/tty 擁有者並取得共用鎖：/dev/cu.usbmodem<REDACTED>
+20261117T014719 MSN 握手成功，banner=1；此回覆不是面板完成回執
+20261117T014719 開始串流：desktop / 60 FPS / off；紀錄 <PROJECT_ROOT>/results/macos/msu2_02_direct_20261117/raw60/logs/20261117T014719_<PID>_1/stream_1.csv
+20261117T014741 診斷紀錄至串流結束（尚未含最後 200 ms 批次）：written=9198 lost_full=0 lost_after_failure=0 write_failed=0
+20261117T014741 串流來源統計：capture_slots_missed=1 waiting_frames_replaced=793
+20261117T014741 串流已停止，連線保留；CSV 已寫入
+20261117T014741 診斷紀錄結束：written=9243 lost_full=0 lost_after_failure=0 write_failed=0

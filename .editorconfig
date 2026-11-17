@@ -20,3 +20,8 @@ trim_trailing_whitespace = false
 
 [MSU2_MINI_CPP_v0_2_20261010/**]
 trim_trailing_whitespace = false
+
+[docs/evidence/**]
+trim_trailing_whitespace = false
+insert_final_newline = false
+end_of_line = unset

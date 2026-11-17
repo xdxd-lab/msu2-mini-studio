@@ -1,0 +1,17 @@
+# 殘留敏感掃描 v4（歷史候選包，pattern 以 ID 表示）
+掃描範圍：本目錄全部檔案含 README.md 與 MANIFEST.csv，不含 SCAN.txt
+掃描時間：2026-11-17 20:48
+P01_home_path_prefix 0 []
+P02_user_name 0 []
+P03_device_port_digits 0 []
+P04_email 0 []
+P05_pid_numeric 3 ['05/2026-11-15_static_lowload_attempt002_REPORT_zh-TW.md', '06/2026-11-14_resource_attempt003_REPORT_zh-TW.md', '06/2026-11-14_resource_attempt003_REVIEW_zh-TW.md']
+P06_session_token 0 []
+P07_team_id 0 []
+P08_agent_names 0 []
+P09_other_app_or_display 0 []
+P10_secret_like 0 []
+P11_rx_hex_nonempty 0 []
+## 判讀
+- P05 命中 3 檔：占位符命中（『PID <PID>』後方的數字為開始時間戳或耗時秒數，或表格欄名『PID』後方的數值）。程序編號已替換。
+- 其餘 pattern：0 命中。

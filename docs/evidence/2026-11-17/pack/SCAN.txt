@@ -1,0 +1,17 @@
+# 殘留敏感掃描 v4（pattern 以 ID 表示）
+掃描範圍：本目錄全部檔案含 README.md 與 MANIFEST.csv，不含 SCAN.txt
+掃描時間：2026-11-17 20:47
+P01_home_path_prefix 0 []
+P02_user_name 0 []
+P03_device_port_digits 0 []
+P04_email 0 []
+P05_pid_numeric 1 ['06_offline/REPORT_attempt004_zh-TW.md']
+P06_session_token 0 []
+P07_team_id 0 []
+P08_agent_names 0 []
+P09_other_app_or_display 0 []
+P10_secret_like 0 []
+P11_rx_hex_nonempty 0 []
+## 判讀
+- P05 唯一命中 06_offline/REPORT_attempt004_zh-TW.md：占位符命中（『PID <PID>』後方的數字為耗時秒數，程序編號已替換）。
+- P11（rx_hex 非空）：0。其餘 pattern：0 命中。

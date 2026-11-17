@@ -35,10 +35,10 @@ SANITIZERS=1 BUILD_DIR="$PWD/results/local-sanitized" bash msu2_macos_app/script
 |---|---|
 | [交接入口](docs/HANDOFF_zh-TW.md) | 接手步驟、工作邊界、證據位置與下一步 |
 | [現況與待辦](docs/STATUS_zh-TW.md) | 最新實機觀察、待辦代號 01–12 |
-| [證據索引](docs/EVIDENCE_INDEX_zh-TW.md) | 原始證據在哪裡、哪些未公開、如何重做 |
+| [證據索引](docs/EVIDENCE_INDEX_zh-TW.md) | 已公開的精選證據、未公開的原件、如何重做 |
 | [文件索引](docs/README.md) | 現行文件與歷史調查的區別 |
 | [軟體架構](docs/ARCHITECTURE_zh-TW.md) | 模組、執行緒、資料擁有權與時間定義 |
 | [參與開發](CONTRIBUTING.md) | 修改、註解、驗證與提交規則 |
 | [發布準備](docs/RELEASING_zh-TW.md) | 版本、簽章、授權範圍與尚待完成的驗收 |
 
-產品程式在 `msu2_macos_app/`，共用核心在 `msu2_linux_v0_3/`。早期工具與 v0.2 原始碼因相互依賴保留既有路徑，屬於[歷史工具](docs/history/README.md)，不作為目前 App 的建置入口。實驗原始資料、App 及建置產物保留於本機，不隨 Git 推送。
+產品程式在 `msu2_macos_app/`，共用核心在 `msu2_linux_v0_3/`。早期工具與 v0.2 原始碼因相互依賴保留既有路徑，屬於[歷史工具](docs/history/README.md)，不作為目前 App 的建置入口。實驗原始資料、App 及建置產物保留於本機，不隨 Git 推送；經審核的去識別化精選副本放在 `docs/evidence/`。

@@ -1,0 +1,6 @@
+disconnected: 尚未連線
+connecting: 檢查 cu/tty 擁有者並取得共用鎖：/dev/cu.usbmodem<REDACTED>
+streaming: 開始串流：desktop / 60 FPS / off；紀錄 <PROJECT_ROOT>/results/macos/msu2_02_direct_20261117/raw60/logs/20261117T014719_<PID>_1/stream_1.csv
+ready: 串流已停止，連線保留；CSV 已寫入
+sent=527 unchanged=0 dropped=793 bytes=20562486 host_fps=0 handshake_failures=0 ack_timeouts=0 transport_errors=0 reconnects=0
+logs=<PROJECT_ROOT>/results/macos/msu2_02_direct_20261117/raw60/logs/20261117T014719_<PID>_1
