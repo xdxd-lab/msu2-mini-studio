@@ -34,6 +34,8 @@ SANITIZERS=1 BUILD_DIR="$PWD/results/local-sanitized" bash msu2_macos_app/script
 | 入口 | 內容 |
 |---|---|
 | [交接入口](docs/HANDOFF_zh-TW.md) | 接手步驟、工作邊界、證據位置與下一步 |
+| [現況與待辦](docs/STATUS_zh-TW.md) | 最新實機觀察、待辦代號 01–12 |
+| [證據索引](docs/EVIDENCE_INDEX_zh-TW.md) | 原始證據在哪裡、哪些未公開、如何重做 |
 | [文件索引](docs/README.md) | 現行文件與歷史調查的區別 |
 | [軟體架構](docs/ARCHITECTURE_zh-TW.md) | 模組、執行緒、資料擁有權與時間定義 |
 | [參與開發](CONTRIBUTING.md) | 修改、註解、驗證與提交規則 |
