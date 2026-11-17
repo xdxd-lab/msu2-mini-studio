@@ -42,3 +42,13 @@ callback 時刻在 SCK delegate 入口採樣，與主機 trace 使用同一 stea
 來源無 metadata（圖片、合成或既有 fake source）明確記 unavailable，不能把零值當新鮮影格。callback 非正值或在 host 的未來時記 invalid；有效 callback age 不依賴 PTS 有效性。診斷關閉不產生新增事件；仍有 callback 時鐘讀取及固定大小 metadata 更新/傳遞成本，尚無效能量測。開啟後每次 producer 讀取多兩事件、每次 worker 取幀多一事件，需核對 lost 計數，不能宣稱不增加負載。
 
 新增 capture 事件在 queue.put 後記錄，跨執行緒可能晚於對應 frame 事件寫入。解析需依 session、stream 邊界與 frame id 關聯，不能要求 CSV 中相鄰或固定先後；frame id 在每次 stream 會重設。
+
+## 被拒絕的操作請求
+
+Controller 忙碌、已有待處理工作或正在中斷連線時，新的連線、傳送、串流、Flash 或下載請求會被拒絕；拒絕規則與 `state.message`（「請先停止目前工作，再執行新操作」）不變。拒絕時另寫一行 `events.log`，例如 `拒絕新操作：connect（disconnecting）`，因此之後的中斷完成訊息覆蓋 `state.message` 時仍可查。開啟診斷時另記一列：
+
+| kind/stage | result | 欄位 |
+|---|---|---|
+| request/rejected | busy／pending／disconnecting | frame、patch 為 -1；v0..v5 為 0；rx_len 0、rx_hex 空；detail 為請求種類（connect／send／stream／flash／download），不含埠或路徑 |
+
+result 依序取第一個成立的原因：disconnecting、pending、busy。這只是記錄，不排隊、不重試，也不改變 UI 狀態。嚴格 stage 白名單讀取器需加入此事件。
