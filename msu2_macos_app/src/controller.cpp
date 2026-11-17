@@ -127,7 +127,9 @@ struct Controller::Impl {
     void trace(const char* kind,const char* stage,const char* result,std::int64_t frame=-1,int patch=-1,std::array<std::int64_t,6> v={},std::string_view detail={}){
         if(!diag)return;msu2::TraceEvent e;e.t_ns=msu2::trace_now_ns();e.kind=kind;e.stage=stage;e.result=result;e.frame=frame;e.patch=patch;e.v=v;msu2::trace_detail(e,detail);diag->record(e);}
     template<class F>void edit(F f){std::lock_guard<std::mutex> lock(mutex);f(state);}
-    void log(const std::string& message){std::lock_guard<std::mutex> lock(mutex);auto line=stamp()+" "+message;
+    void log(const std::string& message){std::lock_guard<std::mutex> lock(mutex);log_locked(message);}
+    // Caller holds mutex.
+    void log_locked(const std::string& message){auto line=stamp()+" "+message;
         state.logs.push_back(line);if(state.logs.size()>200)state.logs.erase(state.logs.begin());state.message=message;
         events<<line<<'\n';events.flush();}
     bool stopped()const{return stop_requested||quitting||disconnect_requested;}
@@ -136,11 +138,25 @@ struct Controller::Impl {
     }
     void submit(Action action,Settings s,unsigned page=0,std::string output_directory={}){
         try{validate(s);}catch(const std::exception& e){log(e.what());return;}
-        std::lock_guard<std::mutex> lock(mutex);
-        if(state.busy||pending||disconnect_requested){state.message="請先停止目前工作，再執行新操作";return;}
+        const char* rejected=nullptr;
+        {std::lock_guard<std::mutex> lock(mutex);
+        if(state.busy||pending||disconnect_requested){
+            // Same rejection as before; it is also logged because a later log line
+            // (for example the disconnect completion) replaces state.message.
+            rejected=disconnect_requested?"disconnecting":(pending?"pending":"busy");
+            log_locked(std::string("拒絕新操作：")+action_name(action)+"（"+rejected+"）");
+            state.message="請先停止目前工作，再執行新操作";
+        }else{
         stop_requested=false;paused=false;state.busy=true;state.flash_progress=0;
         if(action==Action::download){state.download_progress=0;state.download_bytes=0;state.download_directory.clear();state.download_preview={};}
         pending=Job{action,std::move(s),page,std::move(output_directory)};wake.notify_all();
+        }}
+        // Outside mutex: no new controller-mutex -> diagnostics-lock nesting.
+        if(rejected)trace("request","rejected",rejected,-1,-1,{},action_name(action));
+    }
+    static const char* action_name(Action action){
+        switch(action){case Action::connect:return "connect";case Action::send:return "send";case Action::stream:return "stream";case Action::flash:return "flash";case Action::download:return "download";}
+        return "unknown";
     }
     void close(){
         if(session)trace("connect","close","ok");

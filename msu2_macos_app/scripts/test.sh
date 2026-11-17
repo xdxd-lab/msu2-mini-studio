@@ -38,6 +38,8 @@ OBJECTS+=("$BUILD_DIR/tests/obj/platform.o")
 "$BUILD_DIR/tests/test_session_trace"
 "$CXX" "${FLAGS[@]}" "$APP_ROOT/tests/test_controller_trace.cpp" "${OBJECTS[@]}" "${FRAMEWORKS[@]}" -o "$BUILD_DIR/tests/test_controller_trace"
 "$BUILD_DIR/tests/test_controller_trace" "$BUILD_DIR/trace-test-evidence"
+"$CXX" "${FLAGS[@]}" "$APP_ROOT/tests/test_controller_reject.cpp" "${OBJECTS[@]}" "${FRAMEWORKS[@]}" -o "$BUILD_DIR/tests/test_controller_reject"
+"$BUILD_DIR/tests/test_controller_reject" "$BUILD_DIR/reject-test-evidence"
 # The positive metadata fixture supplies a fake platform at link time, so it
 # follows the desktop path without ScreenCaptureKit permission or a real screen.
 METADATA_OBJECTS=()
