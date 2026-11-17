@@ -1,0 +1,3 @@
+<PROJECT_ROOT>/results/macos/msu2_02_candidate_20261115/frozen/MSU2 Mini Studio.app/Contents/MacOS/msu2ctl stream --source desktop --fps 30 --full --raw --priority off --duration 22 --timeout-ms 3000 --hold-open-ms 1 --port /dev/cu.usbmodem<REDACTED> --log-root <PROJECT_ROOT>/results/macos/msu2_02_direct_20261117/raw30/logs
+MSU2_SHARED_LOCK_ROOT=<PROJECT_ROOT>/results/macos/.device-locks
+MSU2_DIAGNOSTICS=1
