@@ -4,11 +4,11 @@
 
 MSU2 Mini（160 × 80）的原生 macOS C++ 應用程式：桌面投射、圖片串流、連線管理、外部素材 Flash 寫入與圖片下載。使用 AppKit、ScreenCaptureKit 及共用 C++17 核心，基本建置不需第三方套件。
 
-目前為工程開發版本。Pair 串流仍有 ACK 逾時；素材寫入及正式簽章發行也有待驗收。請先閱讀[現況與待辦](docs/STATUS_zh-TW.md)。MCU 韌體燒錄尚未實作，介面顯示的主機更新率亦不等於 LCD FPS。
+目前為工程開發版本。Pair 串流仍有 ACK 逾時；素材寫入有待驗收；目前不製作 App 安裝包或正式簽章發行。請先閱讀[現況與待辦](docs/STATUS_zh-TW.md)。MCU 韌體燒錄尚未實作，介面顯示的主機更新率亦不等於 LCD FPS。
 
 ## 建置與啟動
 
-需要 macOS 13 以上與 Xcode Command Line Tools。建置本機架構，尚未提供正式安裝包。
+需要 macOS 13 以上與 Xcode Command Line Tools。建置本機架構，不提供安裝包。
 
 ```sh
 git clone https://github.com/xdxd-lab/msu2-mini-studio.git
