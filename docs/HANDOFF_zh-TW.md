@@ -4,7 +4,7 @@
 
 ## 接手順序
 
-1. 閱讀 [AGENTS.md](../AGENTS.md)、[現況與待辦](STATUS_zh-TW.md)、[證據索引](EVIDENCE_INDEX_zh-TW.md)、[架構](ARCHITECTURE_zh-TW.md)。待辦以代號 01–12 追蹤，接手前確認自己負責哪一項。確認這次任務、檔案修改者及測試者，避免同時修改同一範圍。
+1. 閱讀 [AGENTS.md](../AGENTS.md)、[現況與待辦](STATUS_zh-TW.md)、[證據索引](EVIDENCE_INDEX_zh-TW.md)、[經驗整理](LESSONS_zh-TW.md)、[架構](ARCHITECTURE_zh-TW.md)。待辦以代號 01–12 追蹤，接手前確認自己負責哪一項。確認這次任務、檔案修改者及測試者，避免同時修改同一範圍。
 2. 記錄 `git rev-parse HEAD`、`git status --short --branch`、`sw_vers`、`uname -m`、`xcrun clang++ --version`。有未提交修改時，先辨識其擁有者與用途；不要清理未追蹤或被忽略的成果。
 3. 依[README](../README.md)使用獨立 `BUILD_DIR` 建置與離線驗證。核對 App 絕對路徑、版本、簽章與 SHA256；不要覆寫別人正在使用的候選，也不要透過名稱搜尋啟動同名舊版。
 4. 閱讀對應 CI run 和本機原始證據的限制，向接手者交代哪些是已觀察、哪些只是推論。離線通過不代表硬體或正式發行驗收完成。

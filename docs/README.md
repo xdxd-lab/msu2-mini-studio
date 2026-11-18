@@ -9,6 +9,7 @@
 | 接手、移交 | [交接入口](HANDOFF_zh-TW.md)、[儲存庫工作流程](REPOSITORY_WORKFLOW_zh-TW.md) |
 | 狀態、優先順序 | [現況與待辦](STATUS_zh-TW.md) |
 | 原始證據位置與公開界線 | [證據索引](EVIDENCE_INDEX_zh-TW.md) |
+| 量測口徑與實作經驗 | [經驗整理](LESSONS_zh-TW.md) |
 | 模組與執行期規則 | [架構](ARCHITECTURE_zh-TW.md) |
 | 記錄與效能判讀 | [診斷](DIAGNOSTICS_zh-TW.md)、[速率定義](../msu2_macos_app/docs/STREAM_METRICS_zh-TW.md) |
 | 裝置協定 | [顯示協定](../msu2_linux_v0_3/docs/PROTOCOL.txt)、[素材 Flash](../msu2_macos_app/docs/FLASH_PROTOCOL.txt)、[下載](../msu2_macos_app/docs/FLASH_DOWNLOAD_zh-TW.txt) |
